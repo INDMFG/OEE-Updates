@@ -1,0 +1,10 @@
+{
+  "latest": "V2.23",
+  "versions": [
+    {
+      "version": "V2.23",
+      "url": "https://raw.githubusercontent.com/INDMFG/OEE-Updates/main/releases/V2.23.py",
+      "notes": "Cloud OTA branch starts here"
+    }
+  ]
+}
