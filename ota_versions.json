@@ -1,10 +1,10 @@
 {
-  "latest": "V2.24",
+  "latest": "V2.25",
   "versions": [
     {
-      "version": "V2.24",
-      "url": "https://raw.githubusercontent.com/INDMFG/OEE-Updates/main/releases/V2.24.py",
-      "notes": "Credential-free OTA release"
+      "version": "V2.25",
+      "url": "https://raw.githubusercontent.com/INDMFG/OEE-Updates/main/releases/V2.25.py",
+      "notes": "Layout tweak and UI stability cleanup"
     }
   ]
 }

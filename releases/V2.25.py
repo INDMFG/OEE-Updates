@@ -24,7 +24,7 @@ MIN_CYCLE_SECONDS = 5
 DEFAULT_YEAR = 2026
 DEFAULT_MONTH = 4
 DEFAULT_DAY = 11
-APP_VERSION = "V2.24"
+APP_VERSION = "V2.25"
 BUTTON_FLASH_MS = 140
 SAVE_INTERVAL_MS = 120000
 STATE_FILE = "machine_oee_state.json"
@@ -38,6 +38,7 @@ OFF_SHIFT_CYCLE = "OFF"
 BOOT_FLAG_FRAME_MS = 120
 STARTUP_SPLASH_MS = 2600
 UI_REFRESH_MS = 400
+GESTURE_COOLDOWN_MS = 700
 DAILY_PRODUCTION_RESET_MINUTE = 9 * 60
 DAILY_PRODUCTION_RESET_HOLD_MS = 2000
 APP_RUNTIME_FILE = "app_runtime.py"
@@ -660,14 +661,14 @@ stabilize_button(ui_Good_Count_Edit)
 
 ui_Label7 = lv.label(ui_MAIN_SCREEN)
 ui_Label7.set_text("Bad Count:")
-ui_Label7.set_x(2)
+ui_Label7.set_x(15)
 ui_Label7.set_y(167)
 ui_Label7.set_align(lv.ALIGN.CENTER)
 ui_Label7.set_style_text_color(lv.color_hex(0xC32331), lv.PART.MAIN | lv.STATE.DEFAULT)
 
 ui_Bad_Label_Reset_Touch = lv.btn(ui_MAIN_SCREEN)
 ui_Bad_Label_Reset_Touch.set_size(118, 38)
-ui_Bad_Label_Reset_Touch.set_x(2)
+ui_Bad_Label_Reset_Touch.set_x(15)
 ui_Bad_Label_Reset_Touch.set_y(167)
 ui_Bad_Label_Reset_Touch.set_align(lv.ALIGN.CENTER)
 SetFlag(ui_Bad_Label_Reset_Touch, lv.obj.FLAG.SCROLLABLE, False)
@@ -697,7 +698,7 @@ stabilize_button(ui_Bad_Count_Edit)
 
 ui_Label9 = lv.label(ui_MAIN_SCREEN)
 ui_Label9.set_text("%:")
-ui_Label9.set_x(98)
+ui_Label9.set_x(108)
 ui_Label9.set_y(166)
 ui_Label9.set_align(lv.ALIGN.CENTER)
 ui_Label9.set_style_text_color(lv.color_hex(0xC32331), lv.PART.MAIN | lv.STATE.DEFAULT)
@@ -1327,6 +1328,7 @@ completed_shift_keys = {shift_name: "" for shift_name in SHIFT_NAMES}
 graph_reset_press_ms = {shift_name: None for shift_name in SHIFT_NAMES}
 ui_cache = {}
 last_ui_refresh_ms = time.ticks_ms()
+last_gesture_ms = time.ticks_add(time.ticks_ms(), -GESTURE_COOLDOWN_MS)
 boot_flag_phase = 0
 boot_flag_last_ms = time.ticks_ms()
 startup_splash_active = True
@@ -1403,7 +1405,10 @@ def set_cached_arc_value(key, arc, value):
 
 
 def set_object_hidden(obj, hidden):
-    SetFlag(obj, lv.obj.FLAG.HIDDEN, hidden)
+    cache_key = "hidden_{}".format(id(obj))
+    if ui_cache.get(cache_key) != hidden:
+        SetFlag(obj, lv.obj.FLAG.HIDDEN, hidden)
+        ui_cache[cache_key] = hidden
 
 
 def get_time_sync_display():
@@ -3331,7 +3336,12 @@ def bad_label_reset_event(e):
 
 
 def change_screen_gesture_event(e):
+    global last_gesture_ms
     if e.get_code() != lv.EVENT.GESTURE:
+        return
+
+    now_ms = time.ticks_ms()
+    if time.ticks_diff(now_ms, last_gesture_ms) < GESTURE_COOLDOWN_MS:
         return
 
     indev = lv.indev_get_act()
@@ -3345,13 +3355,16 @@ def change_screen_gesture_event(e):
         hide_goal_popup()
         hide_count_popup()
         lv.scr_load(ui_SETTINGS)
+        last_gesture_ms = now_ms
     elif direction == lv.DIR.RIGHT and current_screen == ui_SETTINGS:
         hide_goal_popup()
         hide_count_popup()
         lv.scr_load(ui_MAIN_SCREEN)
+        last_gesture_ms = now_ms
     elif direction == lv.DIR.RIGHT and current_screen == ui_SETTINGS_MENU:
         hide_all_settings_popups()
         lv.scr_load(ui_MAIN_SCREEN)
+        last_gesture_ms = now_ms
 
 
 def daily_production_hold_event(e):
