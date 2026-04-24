@@ -5,6 +5,11 @@
       "version": "V2.25",
       "url": "https://raw.githubusercontent.com/INDMFG/OEE-Updates/main/releases/V2.25.py",
       "notes": "Layout tweak and UI stability cleanup"
+    },
+    {
+      "version": "V2.24 Stable",
+      "url": "https://raw.githubusercontent.com/INDMFG/OEE-Updates/main/releases/V2.24.py",
+      "notes": "Known-good rollback build"
     }
   ]
 }
