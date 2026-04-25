@@ -1,6 +1,11 @@
 {
-  "latest": "V2.26",
+  "latest": "V2.27",
   "versions": [
+    {
+      "version": "V2.27",
+      "url": "https://raw.githubusercontent.com/INDMFG/OEE-Updates/main/releases/V2.27.py",
+      "notes": "Private stats repo upload and local token storage"
+    },
     {
       "version": "V2.26",
       "url": "https://raw.githubusercontent.com/INDMFG/OEE-Updates/main/releases/V2.26.py",
