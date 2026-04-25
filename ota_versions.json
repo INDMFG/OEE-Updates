@@ -1,6 +1,11 @@
 {
-  "latest": "V2.27",
+  "latest": "V2.28",
   "versions": [
+    {
+      "version": "V2.28",
+      "url": "https://raw.githubusercontent.com/INDMFG/OEE-Updates/main/releases/V2.28.py",
+      "notes": "PC token import over local WiFi for private stats uploads"
+    },
     {
       "version": "V2.27",
       "url": "https://raw.githubusercontent.com/INDMFG/OEE-Updates/main/releases/V2.27.py",
