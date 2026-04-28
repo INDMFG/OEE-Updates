@@ -1,6 +1,11 @@
 {
-  "latest": "V2.29",
+  "latest": "V2.30",
   "versions": [
+    {
+      "version": "V2.30",
+      "url": "https://raw.githubusercontent.com/INDMFG/OEE-Updates/main/releases/V2.30.py",
+      "notes": "Display stability pass with larger draw buffer and reduced UI churn"
+    },
     {
       "version": "V2.29",
       "url": "https://raw.githubusercontent.com/INDMFG/OEE-Updates/main/releases/V2.29.py",
