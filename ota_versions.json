@@ -1,6 +1,11 @@
 {
-  "latest": "V2.31",
+  "latest": "V2.32",
   "versions": [
+    {
+      "version": "V2.32",
+      "url": "https://raw.githubusercontent.com/INDMFG/OEE-Updates/main/releases/V2.32.py",
+      "notes": "Fix stats upload JSON formatting for MicroPython"
+    },
     {
       "version": "V2.31",
       "url": "https://raw.githubusercontent.com/INDMFG/OEE-Updates/main/releases/V2.31.py",
