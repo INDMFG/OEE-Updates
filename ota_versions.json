@@ -7,36 +7,6 @@
       "notes": "Fix stats upload JSON formatting for MicroPython"
     },
     {
-      "version": "V2.31",
-      "url": "https://raw.githubusercontent.com/INDMFG/OEE-Updates/main/releases/V2.31.py",
-      "notes": "Persistent settings memory, stronger pulse ignore, easier swipes, and better GitHub error text"
-    },
-    {
-      "version": "V2.30",
-      "url": "https://raw.githubusercontent.com/INDMFG/OEE-Updates/main/releases/V2.30.py",
-      "notes": "Display stability pass with larger draw buffer and reduced UI churn"
-    },
-    {
-      "version": "V2.28",
-      "url": "https://raw.githubusercontent.com/INDMFG/OEE-Updates/main/releases/V2.28.py",
-      "notes": "PC token import over local WiFi for private stats uploads"
-    },
-    {
-      "version": "V2.27",
-      "url": "https://raw.githubusercontent.com/INDMFG/OEE-Updates/main/releases/V2.27.py",
-      "notes": "Private stats repo upload and local token storage"
-    },
-    {
-      "version": "V2.26",
-      "url": "https://raw.githubusercontent.com/INDMFG/OEE-Updates/main/releases/V2.26.py",
-      "notes": "Button dwell guard and confirmed OTA install"
-    },
-    {
-      "version": "V2.25",
-      "url": "https://raw.githubusercontent.com/INDMFG/OEE-Updates/main/releases/V2.25.py",
-      "notes": "Layout tweak and UI stability cleanup"
-    },
-    {
       "version": "V2.24 Stable",
       "url": "https://raw.githubusercontent.com/INDMFG/OEE-Updates/main/releases/V2.24.py",
       "notes": "Known-good rollback build"
