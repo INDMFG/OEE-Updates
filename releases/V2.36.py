@@ -28,7 +28,7 @@ PPH_STOP_BEFORE_SHIFT_END_MINUTES = 30
 DEFAULT_YEAR = 2026
 DEFAULT_MONTH = 4
 DEFAULT_DAY = 11
-APP_VERSION = "V2.35"
+APP_VERSION = "V2.36"
 BUTTON_FLASH_MS = 140
 SAVE_INTERVAL_MS = 120000
 STATE_FILE = "machine_oee_state.json"
@@ -803,6 +803,26 @@ ui_Label11.set_y(-223)
 ui_Label11.set_align(lv.ALIGN.CENTER)
 ui_Label11.set_style_text_color(lv.color_hex(0xE39B0A), lv.PART.MAIN | lv.STATE.DEFAULT)
 
+ui_NOTE_BUTTON = lv.btn(ui_MAIN_SCREEN)
+ui_NOTE_BUTTON.set_width(50)
+ui_NOTE_BUTTON.set_height(35)
+ui_NOTE_BUTTON.set_x(-374)
+ui_NOTE_BUTTON.set_y(-222)
+ui_NOTE_BUTTON.set_align(lv.ALIGN.CENTER)
+SetFlag(ui_NOTE_BUTTON, lv.obj.FLAG.SCROLLABLE, False)
+stabilize_button(ui_NOTE_BUTTON)
+ui_NOTE_BUTTON.set_style_radius(0, lv.PART.MAIN | lv.STATE.DEFAULT)
+ui_NOTE_BUTTON.set_style_bg_color(lv.color_hex(0x444242), lv.PART.MAIN | lv.STATE.DEFAULT)
+ui_NOTE_BUTTON.set_style_bg_opa(255, lv.PART.MAIN | lv.STATE.DEFAULT)
+ui_NOTE_BUTTON.set_style_border_width(0, lv.PART.MAIN | lv.STATE.DEFAULT)
+
+ui_NOTE_LABEL = lv.label(ui_MAIN_SCREEN)
+ui_NOTE_LABEL.set_text("NOTE")
+ui_NOTE_LABEL.set_x(-374)
+ui_NOTE_LABEL.set_y(-223)
+ui_NOTE_LABEL.set_align(lv.ALIGN.CENTER)
+ui_NOTE_LABEL.set_style_text_color(lv.color_hex(0xCFCFCF), lv.PART.MAIN | lv.STATE.DEFAULT)
+
 ui_PPH_GOAL_SETTING = lv.btn(ui_MAIN_SCREEN)
 ui_PPH_GOAL_SETTING.set_width(92)
 ui_PPH_GOAL_SETTING.set_height(62)
@@ -1074,6 +1094,7 @@ notes_overlay.set_style_radius(0, lv.PART.MAIN | lv.STATE.DEFAULT)
 notes_overlay.set_style_bg_color(lv.color_hex(0x181818), lv.PART.MAIN | lv.STATE.DEFAULT)
 notes_overlay.set_style_bg_opa(255, lv.PART.MAIN | lv.STATE.DEFAULT)
 notes_overlay.set_style_border_opa(0, lv.PART.MAIN | lv.STATE.DEFAULT)
+SetFlag(notes_overlay, lv.obj.FLAG.HIDDEN, True)
 
 notes_title_label = lv.label(notes_overlay)
 notes_title_label.set_text("NOTES")
@@ -1463,6 +1484,7 @@ notes_title_text = "NOTES"
 notes_body_text = ""
 notes_status_text = ""
 notes_page_text = ""
+notes_mode_active = False
 
 time_is_set = False
 set_hour = 12
@@ -1613,6 +1635,12 @@ def set_object_hidden(obj, hidden):
     if ui_cache.get(cache_key) != hidden:
         SetFlag(obj, lv.obj.FLAG.HIDDEN, hidden)
         ui_cache[cache_key] = hidden
+
+
+def set_notes_mode(enabled):
+    global notes_mode_active
+    notes_mode_active = bool(enabled)
+    set_object_hidden(notes_overlay, not notes_mode_active)
 
 
 def arm_main_screen_button_guard():
@@ -2438,6 +2466,7 @@ def open_notes_screen(reset_index=False):
     if reset_index:
         notes_current_index = 0
 
+    set_notes_mode(True)
     notes_entries = []
     notes_text_cache = {}
 
@@ -2459,6 +2488,12 @@ def open_notes_screen(reset_index=False):
         notes_current_index = len(notes_entries)
 
     load_current_note_page()
+    lv.scr_load(ui_SETTINGS)
+    update_ui()
+
+
+def show_shift_stats_screen():
+    set_notes_mode(False)
     lv.scr_load(ui_SETTINGS)
     update_ui()
 
@@ -4491,7 +4526,10 @@ def update_ui():
     if current_screen == ui_MAIN_SCREEN:
         update_main_screen_ui(current_shift)
     elif current_screen == ui_SETTINGS:
-        update_notes_screen()
+        if notes_mode_active:
+            update_notes_screen()
+        else:
+            update_stats_screen()
     elif current_screen == ui_SETTINGS_MENU:
         update_settings_menu_ui(now_tuple)
 
@@ -4620,21 +4658,30 @@ def change_screen_gesture_event(e):
     direction = indev.get_gesture_dir()
     current_screen = lv.scr_act()
 
-    if direction == lv.DIR.LEFT and current_screen == ui_MAIN_SCREEN:
+    if direction == lv.DIR.RIGHT and current_screen == ui_MAIN_SCREEN:
         hide_goal_popup()
         hide_count_popup()
-        open_notes_screen(reset_index=True)
+        show_shift_stats_screen()
         last_gesture_ms = now_ms
-    elif direction == lv.DIR.LEFT and current_screen == ui_SETTINGS:
+    elif direction == lv.DIR.LEFT and current_screen == ui_SETTINGS and notes_mode_active:
         advance_notes_page()
         last_gesture_ms = now_ms
-    elif direction == lv.DIR.RIGHT and current_screen == ui_SETTINGS:
+    elif direction == lv.DIR.RIGHT and current_screen == ui_SETTINGS and notes_mode_active:
         retreat_notes_page()
+        last_gesture_ms = now_ms
+    elif direction == lv.DIR.RIGHT and current_screen == ui_SETTINGS and not notes_mode_active:
+        load_main_screen_with_guard()
         last_gesture_ms = now_ms
     elif direction == lv.DIR.RIGHT and current_screen == ui_SETTINGS_MENU:
         hide_all_settings_popups()
         load_main_screen_with_guard()
         last_gesture_ms = now_ms
+
+
+def notes_button_event(e):
+    if e.get_code() != lv.EVENT.CLICKED:
+        return
+    open_notes_screen(reset_index=True)
 
 
 def notes_main_button_event(e):
@@ -5182,6 +5229,7 @@ ui_Good_Label_Reset_Touch.add_event_cb(good_label_reset_event, lv.EVENT.ALL, Non
 ui_Bad_Label_Reset_Touch.add_event_cb(bad_label_reset_event, lv.EVENT.ALL, None)
 ui_Good_Count_Edit.add_event_cb(set_good_count_event, lv.EVENT.ALL, None)
 ui_Bad_Count_Edit.add_event_cb(set_bad_count_event, lv.EVENT.ALL, None)
+ui_NOTE_BUTTON.add_event_cb(notes_button_event, lv.EVENT.ALL, None)
 ui_WiFi_Settings.add_event_cb(wifi_settings_event, lv.EVENT.ALL, None)
 ui_Shift_Hours_Settings.add_event_cb(shift_hours_event, lv.EVENT.ALL, None)
 ui_Parts_Per_Cycle.add_event_cb(parts_per_cycle_event, lv.EVENT.ALL, None)
