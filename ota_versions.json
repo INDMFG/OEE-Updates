@@ -1,14 +1,14 @@
 {
-  "latest": "V2.32",
+  "latest": "V2.33",
   "versions": [
     {
-      "version": "V2.32",
-      "url": "https://raw.githubusercontent.com/INDMFG/OEE-Updates/main/releases/V2.32.py",
-      "notes": "Fix stats upload JSON formatting for MicroPython"
+      "version": "V2.33",
+      "url": "https://raw.githubusercontent.com/INDMFG/OEE-Updates/main/releases/V2.33.py",
+      "notes": "Simplify machine stats layout and promote V2.32 as stable"
     },
     {
-      "version": "V2.24 Stable",
-      "url": "https://raw.githubusercontent.com/INDMFG/OEE-Updates/main/releases/V2.24.py",
+      "version": "V2.32 Stable",
+      "url": "https://raw.githubusercontent.com/INDMFG/OEE-Updates/main/releases/V2.32.py",
       "notes": "Known-good rollback build"
     }
   ]

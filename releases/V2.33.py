@@ -13,6 +13,7 @@ ssl = None
 network = None
 ntptime = None
 machine = None
+binascii = None
 
 time.sleep(3)
 
@@ -21,13 +22,17 @@ HEIGHT = 480
 RUN_PIN = 44
 DEBOUNCE_MS = 50
 MIN_CYCLE_SECONDS = 5
+PPH_IGNORE_INITIAL_CYCLES = 3
+PPH_DISPLAY_READY_CYCLES = 3
+PPH_STOP_BEFORE_SHIFT_END_MINUTES = 30
 DEFAULT_YEAR = 2026
 DEFAULT_MONTH = 4
 DEFAULT_DAY = 11
-APP_VERSION = "V2.24"
+APP_VERSION = "V2.33"
 BUTTON_FLASH_MS = 140
 SAVE_INTERVAL_MS = 120000
 STATE_FILE = "machine_oee_state.json"
+CONFIG_FILE = "machine_oee_config.json"
 WIFI_SSID = ""
 WIFI_PASSWORD = ""
 WIFI_TIMEOUT_MS = 15000
@@ -37,13 +42,23 @@ GRAPH_RESET_HOLD_MS = 2000
 OFF_SHIFT_CYCLE = "OFF"
 BOOT_FLAG_FRAME_MS = 120
 STARTUP_SPLASH_MS = 2600
-UI_REFRESH_MS = 400
+UI_REFRESH_ACTIVE_MS = 250
+UI_REFRESH_IDLE_MS = 1000
+UI_REFRESH_SETTINGS_MS = 1000
+GESTURE_COOLDOWN_MS = 250
+MAIN_SCREEN_BUTTON_GUARD_MS = 450
 DAILY_PRODUCTION_RESET_MINUTE = 9 * 60
 DAILY_PRODUCTION_RESET_HOLD_MS = 2000
 APP_RUNTIME_FILE = "app_runtime.py"
 OTA_STAGED_FILE = "app_ota.py"
 OTA_BACKUP_FILE = "app_previous.py"
 OTA_MANIFEST_URL = UPDATE_SERVER_URL
+STATS_REPO_OWNER = "INDMFG"
+STATS_REPO_NAME = "Machine-Stats"
+STATS_REPO_BRANCH = "main"
+DEFAULT_STATS_MACHINE_ID = "matsuura"
+DEFAULT_STATS_TOKEN_IMPORT_URL = ""
+STATS_UPLOAD_INTERVAL_MS = 120000
 BOOT_FLAG_WAVE = (0, 2, 5, 8, 10, 8, 5, 2, 0, -2, -5, -8, -10, -8, -5, -2)
 BOOT_FLAG_VIEW_WIDTH = 220
 BOOT_FLAG_VIEW_HEIGHT = 130
@@ -51,6 +66,7 @@ BOOT_FLAG_IMAGE_BASE_X = -10
 startup_flag_asset = None
 startup_flag_asset_error = None
 TIME_OPTION_STEP_MINUTES = 30
+DRAW_BUFFER_LINES = 32
 SHIFT_NAMES = ("A", "B", "C")
 DEFAULT_SHIFT_SETTINGS = {
     "A": {"enabled": True, "start": 9 * 60, "end": 13 * 60},
@@ -98,7 +114,7 @@ if not lv_utils.event_loop.is_running():
     lv_utils.event_loop()
 
 disp_buf0 = lv.disp_draw_buf_t()
-buf1_0 = bytearray(WIDTH * 50)
+buf1_0 = bytearray(WIDTH * DRAW_BUFFER_LINES * lv.color_t.__SIZE__)
 disp_buf0.init(buf1_0, None, len(buf1_0) // lv.color_t.__SIZE__)
 
 disp_drv = lv.disp_drv_t()
@@ -171,6 +187,15 @@ try:
 except ImportError:
     _machine = None
 machine = _machine
+
+try:
+    import ubinascii as _binascii
+except ImportError:
+    try:
+        import binascii as _binascii
+    except ImportError:
+        _binascii = None
+binascii = _binascii
 
 gc.collect()
 
@@ -273,6 +298,38 @@ def stabilize_button(btn):
         pass
 
 
+def stabilize_widget(obj):
+    try:
+        SetFlag(obj, lv.obj.FLAG.SCROLL_ON_FOCUS, False)
+    except Exception:
+        pass
+    for flag_name in ("SCROLL_CHAIN_HOR", "SCROLL_CHAIN_VER", "SCROLL_ELASTIC", "SCROLL_MOMENTUM"):
+        try:
+            obj.clear_flag(getattr(lv.obj.FLAG, flag_name))
+        except Exception:
+            pass
+    try:
+        obj.set_style_anim_time(0, lv.PART.MAIN | lv.STATE.DEFAULT)
+        obj.set_style_anim_time(0, lv.PART.MAIN | lv.STATE.PRESSED)
+        obj.set_style_anim_time(0, lv.PART.MAIN | lv.STATE.FOCUSED)
+    except Exception:
+        pass
+    try:
+        obj.set_style_outline_opa(0, lv.PART.MAIN | lv.STATE.DEFAULT)
+        obj.set_style_outline_opa(0, lv.PART.MAIN | lv.STATE.FOCUSED)
+        obj.set_style_outline_width(0, lv.PART.MAIN | lv.STATE.FOCUSED)
+        obj.set_style_outline_pad(0, lv.PART.MAIN | lv.STATE.FOCUSED)
+    except Exception:
+        pass
+    try:
+        obj.set_style_translate_x(0, lv.PART.MAIN | lv.STATE.PRESSED)
+        obj.set_style_translate_y(0, lv.PART.MAIN | lv.STATE.PRESSED)
+        obj.set_style_transform_width(0, lv.PART.MAIN | lv.STATE.PRESSED)
+        obj.set_style_transform_height(0, lv.PART.MAIN | lv.STATE.PRESSED)
+    except Exception:
+        pass
+
+
 def stabilize_value_label(label, width, text_align=lv.TEXT_ALIGN.CENTER):
     label.set_width(width)
     label.set_style_text_align(text_align, lv.PART.MAIN | lv.STATE.DEFAULT)
@@ -287,6 +344,7 @@ def stabilize_value_label(label, width, text_align=lv.TEXT_ALIGN.CENTER):
 # =========================================================
 startup_scr = lv.obj()
 startup_scr.clear_flag(lv.obj.FLAG.SCROLLABLE)
+stabilize_widget(startup_scr)
 startup_scr.set_style_bg_color(lv.color_hex(0xFFFFFF), lv.PART.MAIN | lv.STATE.DEFAULT)
 startup_scr.set_style_bg_opa(255, lv.PART.MAIN | lv.STATE.DEFAULT)
 
@@ -312,6 +370,7 @@ startup_version_label.set_style_text_color(lv.color_hex(0x7A7A7A), lv.PART.MAIN 
 # =========================================================
 boot_scr = lv.obj()
 boot_scr.clear_flag(lv.obj.FLAG.SCROLLABLE)
+stabilize_widget(boot_scr)
 boot_scr.set_style_bg_color(lv.color_hex(0xFFFFFF), lv.PART.MAIN | lv.STATE.DEFAULT)
 boot_scr.set_style_bg_opa(255, lv.PART.MAIN | lv.STATE.DEFAULT)
 
@@ -409,6 +468,7 @@ ui____initial_actions0 = lv.obj()
 
 ui_MAIN_SCREEN = lv.obj()
 SetFlag(ui_MAIN_SCREEN, lv.obj.FLAG.SCROLLABLE, False)
+stabilize_widget(ui_MAIN_SCREEN)
 ui_MAIN_SCREEN.set_style_bg_color(lv.color_hex(0x313030), lv.PART.MAIN | lv.STATE.DEFAULT)
 ui_MAIN_SCREEN.set_style_bg_opa(255, lv.PART.MAIN | lv.STATE.DEFAULT)
 
@@ -660,14 +720,14 @@ stabilize_button(ui_Good_Count_Edit)
 
 ui_Label7 = lv.label(ui_MAIN_SCREEN)
 ui_Label7.set_text("Bad Count:")
-ui_Label7.set_x(2)
+ui_Label7.set_x(15)
 ui_Label7.set_y(167)
 ui_Label7.set_align(lv.ALIGN.CENTER)
 ui_Label7.set_style_text_color(lv.color_hex(0xC32331), lv.PART.MAIN | lv.STATE.DEFAULT)
 
 ui_Bad_Label_Reset_Touch = lv.btn(ui_MAIN_SCREEN)
 ui_Bad_Label_Reset_Touch.set_size(118, 38)
-ui_Bad_Label_Reset_Touch.set_x(2)
+ui_Bad_Label_Reset_Touch.set_x(15)
 ui_Bad_Label_Reset_Touch.set_y(167)
 ui_Bad_Label_Reset_Touch.set_align(lv.ALIGN.CENTER)
 SetFlag(ui_Bad_Label_Reset_Touch, lv.obj.FLAG.SCROLLABLE, False)
@@ -697,7 +757,7 @@ stabilize_button(ui_Bad_Count_Edit)
 
 ui_Label9 = lv.label(ui_MAIN_SCREEN)
 ui_Label9.set_text("%:")
-ui_Label9.set_x(98)
+ui_Label9.set_x(108)
 ui_Label9.set_y(166)
 ui_Label9.set_align(lv.ALIGN.CENTER)
 ui_Label9.set_style_text_color(lv.color_hex(0xC32331), lv.PART.MAIN | lv.STATE.DEFAULT)
@@ -844,6 +904,7 @@ stabilize_value_label(ui_machine_cycle_time, 170)
 ui_SETTINGS = lv.obj()
 ui_Shift_Data_Screen = ui_SETTINGS
 SetFlag(ui_SETTINGS, lv.obj.FLAG.SCROLLABLE, False)
+stabilize_widget(ui_SETTINGS)
 ui_SETTINGS.set_style_bg_color(lv.color_hex(0x313030), lv.PART.MAIN | lv.STATE.DEFAULT)
 ui_SETTINGS.set_style_bg_opa(255, lv.PART.MAIN | lv.STATE.DEFAULT)
 
@@ -997,6 +1058,7 @@ stats_widgets = {
 # =========================================================
 ui_SETTINGS_MENU = lv.obj()
 SetFlag(ui_SETTINGS_MENU, lv.obj.FLAG.SCROLLABLE, False)
+stabilize_widget(ui_SETTINGS_MENU)
 ui_SETTINGS_MENU.set_style_bg_color(lv.color_hex(0x313030), lv.PART.MAIN | lv.STATE.DEFAULT)
 ui_SETTINGS_MENU.set_style_bg_opa(255, lv.PART.MAIN | lv.STATE.DEFAULT)
 
@@ -1088,6 +1150,7 @@ settings_menu_version.set_style_text_color(lv.color_hex(0x7A7A7A), lv.PART.MAIN 
 goal_popup = lv.obj(ui_MAIN_SCREEN)
 goal_popup.set_size(320, 360)
 goal_popup.center()
+stabilize_widget(goal_popup)
 goal_popup.set_style_bg_color(lv.color_hex(0x222222), lv.PART.MAIN | lv.STATE.DEFAULT)
 goal_popup.set_style_bg_opa(255, lv.PART.MAIN | lv.STATE.DEFAULT)
 goal_popup.set_style_border_color(lv.color_hex(0xFCA903), lv.PART.MAIN | lv.STATE.DEFAULT)
@@ -1109,6 +1172,7 @@ goal_textarea.set_one_line(True)
 goal_textarea.set_max_length(4)
 goal_textarea.set_text("100")
 goal_textarea.set_placeholder_text("PPH")
+stabilize_widget(goal_textarea)
 
 goal_kb = lv.btnmatrix(goal_popup)
 goal_kb.set_map([
@@ -1120,10 +1184,12 @@ goal_kb.set_map([
 ])
 goal_kb.set_size(280, 210)
 goal_kb.align(lv.ALIGN.BOTTOM_MID, 0, -12)
+stabilize_widget(goal_kb)
 
 count_popup = lv.obj(ui_MAIN_SCREEN)
 count_popup.set_size(320, 360)
 count_popup.center()
+stabilize_widget(count_popup)
 count_popup.set_style_bg_color(lv.color_hex(0x222222), lv.PART.MAIN | lv.STATE.DEFAULT)
 count_popup.set_style_bg_opa(255, lv.PART.MAIN | lv.STATE.DEFAULT)
 count_popup.set_style_border_color(lv.color_hex(0xFCA903), lv.PART.MAIN | lv.STATE.DEFAULT)
@@ -1145,6 +1211,7 @@ count_textarea.set_one_line(True)
 count_textarea.set_max_length(6)
 count_textarea.set_text("0")
 count_textarea.set_placeholder_text("COUNT")
+stabilize_widget(count_textarea)
 
 count_kb = lv.btnmatrix(count_popup)
 count_kb.set_map([
@@ -1156,6 +1223,7 @@ count_kb.set_map([
 ])
 count_kb.set_size(280, 210)
 count_kb.align(lv.ALIGN.BOTTOM_MID, 0, -12)
+stabilize_widget(count_kb)
 
 
 # =========================================================
@@ -1203,16 +1271,19 @@ def make_shift_hours_row(parent, shift_name, y_offset):
     enabled_cb = lv.checkbox(parent)
     enabled_cb.set_text("")
     enabled_cb.align(lv.ALIGN.TOP_LEFT, 148, y_offset)
+    stabilize_widget(enabled_cb)
 
     start_dd = lv.dropdown(parent)
     start_dd.set_options(TIME_OPTION_TEXT)
     start_dd.set_size(140, 40)
     start_dd.align(lv.ALIGN.TOP_LEFT, 218, y_offset - 6)
+    stabilize_widget(start_dd)
 
     end_dd = lv.dropdown(parent)
     end_dd.set_options(TIME_OPTION_TEXT)
     end_dd.set_size(140, 40)
     end_dd.align(lv.ALIGN.TOP_LEFT, 410, y_offset - 6)
+    stabilize_widget(end_dd)
 
     return {
         "label": row_label,
@@ -1225,9 +1296,25 @@ software_update_popup = None
 software_update_status = None
 software_update_list = None
 software_update_refresh = None
+software_update_ok = None
+software_update_stats = None
 software_update_close = None
 software_update_entries = []
 software_update_callbacks = []
+software_update_selected_entry = None
+software_update_selected_btn = None
+software_update_entry_buttons = []
+
+stats_config_popup = None
+stats_config_machine_textarea = None
+stats_config_import_url_textarea = None
+stats_config_token_textarea = None
+stats_config_status = None
+stats_config_kb = None
+stats_config_save = None
+stats_config_import = None
+stats_config_upload = None
+stats_config_close = None
 
 # =========================================================
 # DATA / LOGIC
@@ -1243,6 +1330,10 @@ def make_shift_bucket():
         "produced_parts": 0,
         "with_load_sum": 0.0,
         "with_load_count": 0,
+        "pph_cycle_count": 0,
+        "pph_produced_parts": 0,
+        "pph_with_load_sum": 0.0,
+        "pph_with_load_count": 0,
     }
 
 
@@ -1283,6 +1374,9 @@ daily_production_history = []
 wifi_ssid = WIFI_SSID
 wifi_password = WIFI_PASSWORD
 update_server_url = UPDATE_SERVER_URL
+stats_machine_id = DEFAULT_STATS_MACHINE_ID
+stats_token_import_url = DEFAULT_STATS_TOKEN_IMPORT_URL
+github_stats_token = ""
 selected_wifi_ssid = ""
 wifi_scan_results = []
 shift_settings = clone_shift_settings()
@@ -1299,6 +1393,8 @@ machine_high = (last_raw == 0 and not io_invert) or (last_raw != 0 and io_invert
 
 machine_run_start_epoch = time.time() if machine_high else None
 machine_run_confirmed = machine_high
+pending_machine_run_start_epoch = None
+pending_cycle_shift = None
 current_cycle_start_epoch = None
 current_cycle_shift = None
 last_cycle_complete_epoch = None
@@ -1314,7 +1410,9 @@ graph_cycle_anchor_epoch = {"A": None, "B": None, "C": None}
 good_flash_until = None
 bad_flash_until = None
 data_dirty = False
+stats_upload_dirty = False
 last_save_ms = time.ticks_ms()
+last_stats_upload_ms = time.ticks_add(time.ticks_ms(), -STATS_UPLOAD_INTERVAL_MS)
 time_source_label = "Default"
 daily_production_press_ms = None
 good_label_reset_press_ms = None
@@ -1327,6 +1425,8 @@ completed_shift_keys = {shift_name: "" for shift_name in SHIFT_NAMES}
 graph_reset_press_ms = {shift_name: None for shift_name in SHIFT_NAMES}
 ui_cache = {}
 last_ui_refresh_ms = time.ticks_ms()
+last_gesture_ms = time.ticks_add(time.ticks_ms(), -GESTURE_COOLDOWN_MS)
+main_screen_button_guard_until = time.ticks_add(time.ticks_ms(), -MAIN_SCREEN_BUTTON_GUARD_MS)
 boot_flag_phase = 0
 boot_flag_last_ms = time.ticks_ms()
 startup_splash_active = True
@@ -1349,6 +1449,31 @@ def format_hhmmss(hours, minutes, seconds):
 
 def clamp_minute_value(value):
     return int(value) % (24 * 60)
+
+
+def normalize_import_url(url_text):
+    url_text = str(url_text).strip()
+    if not url_text:
+        return ""
+    if "://" not in url_text:
+        url_text = "http://" + url_text
+    return url_text
+
+
+def sanitize_imported_token(token_text):
+    token_text = str(token_text).replace("\r", "")
+    for line in token_text.split("\n"):
+        line = line.strip()
+        if line:
+            return line
+    return ""
+
+
+def format_status_message(text, max_len=58):
+    text = " ".join(str(text).split())
+    if len(text) <= max_len:
+        return text
+    return text[: max_len - 3] + "..."
 
 
 def dropdown_index_from_minutes(value):
@@ -1403,7 +1528,25 @@ def set_cached_arc_value(key, arc, value):
 
 
 def set_object_hidden(obj, hidden):
-    SetFlag(obj, lv.obj.FLAG.HIDDEN, hidden)
+    cache_key = "hidden_{}".format(id(obj))
+    if ui_cache.get(cache_key) != hidden:
+        SetFlag(obj, lv.obj.FLAG.HIDDEN, hidden)
+        ui_cache[cache_key] = hidden
+
+
+def arm_main_screen_button_guard():
+    global main_screen_button_guard_until
+    main_screen_button_guard_until = time.ticks_add(time.ticks_ms(), MAIN_SCREEN_BUTTON_GUARD_MS)
+
+
+def main_screen_button_guard_active():
+    return time.ticks_diff(time.ticks_ms(), main_screen_button_guard_until) < 0
+
+
+def load_main_screen_with_guard():
+    arm_main_screen_button_guard()
+    lv.scr_load(ui_MAIN_SCREEN)
+    update_ui()
 
 
 def get_time_sync_display():
@@ -1561,7 +1704,7 @@ def maybe_run_boot_wifi_sync():
         sync_live_timers()
         update_ui()
         if lv.scr_act() == boot_scr:
-            lv.scr_load(ui_MAIN_SCREEN)
+            load_main_screen_with_guard()
 
 
 def get_update_manifest_url():
@@ -1630,11 +1773,23 @@ def open_http_socket(scheme, host_name, port):
 
 
 def socket_send_bytes(sock, data):
-    if hasattr(sock, "send"):
-        return sock.send(data)
-    if hasattr(sock, "write"):
-        return sock.write(data)
-    raise OSError("Socket send unavailable")
+    if not isinstance(data, bytes):
+        data = bytes(data)
+    total_sent = 0
+    while total_sent < len(data):
+        chunk = data[total_sent:]
+        if hasattr(sock, "send"):
+            sent = sock.send(chunk)
+        elif hasattr(sock, "write"):
+            sent = sock.write(chunk)
+        else:
+            raise OSError("Socket send unavailable")
+        if sent is None:
+            sent = len(chunk)
+        if sent <= 0:
+            raise OSError("Socket send failed")
+        total_sent += sent
+    return total_sent
 
 
 def socket_recv_bytes(sock, size):
@@ -1782,6 +1937,74 @@ def http_download_to_file(url_text, dest_path):
         socket_close_safe(sock)
 
 
+def http_request(url_text, method="GET", headers=None, body=None):
+    scheme, host_name, port, path = parse_url(url_text)
+    sock = None
+    body_bytes = b""
+    if body is not None:
+        if isinstance(body, bytes):
+            body_bytes = body
+        else:
+            body_bytes = str(body).encode("utf-8")
+
+    try:
+        sock = open_http_socket(scheme, host_name, port)
+        lines = [
+            "{} {} HTTP/1.0".format(method, path),
+            "Host: {}".format(host_name),
+            "User-Agent: Machine-OEE",
+            "Connection: close",
+        ]
+        if headers:
+            for name, value in headers.items():
+                lines.append("{}: {}".format(name, value))
+        if body_bytes:
+            lines.append("Content-Length: {}".format(len(body_bytes)))
+
+        request = "\r\n".join(lines) + "\r\n\r\n"
+        socket_send_bytes(sock, request.encode("utf-8"))
+        if body_bytes:
+            socket_send_bytes(sock, body_bytes)
+
+        header_data = b""
+        while b"\r\n\r\n" not in header_data:
+            chunk = socket_recv_bytes(sock, 128)
+            if not chunk:
+                break
+            header_data += chunk
+            if len(header_data) > 16384:
+                break
+
+        header_parts = header_data.split(b"\r\n\r\n", 1)
+        raw_headers = header_parts[0].decode("utf-8", "ignore")
+        body_prefix = header_parts[1] if len(header_parts) > 1 else b""
+        header_lines = raw_headers.split("\r\n")
+        status_line = header_lines[0] if header_lines else ""
+
+        response_headers = {}
+        for line in header_lines[1:]:
+            if ":" not in line:
+                continue
+            name, value = line.split(":", 1)
+            response_headers[name.strip().lower()] = value.strip()
+
+        try:
+            status_code = int(status_line.split(" ")[1])
+        except Exception:
+            status_code = 0
+
+        chunks = [body_prefix]
+        while True:
+            chunk = socket_recv_bytes(sock, 1024)
+            if not chunk:
+                break
+            chunks.append(chunk)
+
+        return status_code, response_headers, b"".join(chunks)
+    finally:
+        socket_close_safe(sock)
+
+
 def install_staged_update():
     if os is None:
         raise OSError("Filesystem unavailable")
@@ -1842,6 +2065,82 @@ def perform_software_update(entry):
     install_staged_update()
     mark_data_dirty()
     save_state(force=True)
+
+
+def base64_encode_bytes(data):
+    if binascii is None:
+        raise OSError("Base64 support unavailable")
+    encoded = binascii.b2a_base64(data)
+    if isinstance(encoded, bytes):
+        return encoded.decode("utf-8").strip()
+    return str(encoded).strip()
+
+
+def base64_decode_text(text):
+    if binascii is None:
+        raise OSError("Base64 support unavailable")
+    if isinstance(text, str):
+        text = text.encode("utf-8")
+    return binascii.a2b_base64(text)
+
+
+def parse_github_error_message(response_text):
+    message = ""
+    try:
+        response_obj = json.loads(response_text)
+        if isinstance(response_obj, dict):
+            message = str(response_obj.get("message", "")).strip()
+            errors = response_obj.get("errors", [])
+            if isinstance(errors, list) and errors:
+                first_error = errors[0]
+                if isinstance(first_error, dict):
+                    details = str(first_error.get("message", "") or first_error.get("code", "")).strip()
+                else:
+                    details = str(first_error).strip()
+                if details:
+                    if message:
+                        message = "{} ({})".format(message, details)
+                    else:
+                        message = details
+    except Exception:
+        message = ""
+    if not message:
+        message = " ".join(str(response_text).split())
+    return format_status_message(message, 90)
+
+
+def github_api_request(method, api_path, token_text, body_obj=None):
+    if not token_text:
+        raise OSError("GitHub token not set")
+    headers = {
+        "Authorization": "Bearer {}".format(token_text),
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+    body_text = None
+    if body_obj is not None:
+        headers["Content-Type"] = "application/json"
+        body_text = json.dumps(body_obj)
+    url = "https://api.github.com{}".format(api_path)
+    status_code, response_headers, response_body = http_request(url, method=method, headers=headers, body=body_text)
+    response_text = response_body.decode("utf-8", "ignore") if response_body else ""
+    return status_code, response_headers, response_text
+
+
+def import_stats_token_from_url(url_text):
+    url_text = normalize_import_url(url_text)
+    if not url_text:
+        raise ValueError("Token URL required")
+    if connect_wifi() is None:
+        raise OSError("WiFi not connected")
+    token_text = sanitize_imported_token(http_read_text(url_text))
+    if not token_text:
+        raise ValueError("Token file is empty")
+    return url_text, token_text
+
+
+def get_stats_status_path():
+    return "machines/{}/status.json".format(stats_machine_id)
 
 
 def request_device_reset():
@@ -1965,6 +2264,20 @@ def get_shift_end_epoch(shift_name, shift_key):
     return end_epoch
 
 
+def should_include_cycle_in_pph(shift_name, cycle_number, completion_epoch):
+    if cycle_number <= PPH_IGNORE_INITIAL_CYCLES:
+        return False
+
+    shift_key = get_shift_reset_key(shift_name, completion_epoch)
+    shift_end_epoch = get_shift_end_epoch(shift_name, shift_key)
+    if shift_end_epoch is not None:
+        cutoff_epoch = shift_end_epoch - (PPH_STOP_BEFORE_SHIFT_END_MINUTES * 60)
+        if completion_epoch >= cutoff_epoch:
+            return False
+
+    return True
+
+
 def clear_shift_bucket(bucket):
     bucket["good"] = 0
     bucket["bad"] = 0
@@ -1972,6 +2285,10 @@ def clear_shift_bucket(bucket):
     bucket["produced_parts"] = 0
     bucket["with_load_sum"] = 0.0
     bucket["with_load_count"] = 0
+    bucket["pph_cycle_count"] = 0
+    bucket["pph_produced_parts"] = 0
+    bucket["pph_with_load_sum"] = 0.0
+    bucket["pph_with_load_count"] = 0
 
 
 def clone_shift_bucket(bucket):
@@ -1982,13 +2299,18 @@ def clone_shift_bucket(bucket):
         "produced_parts": int(bucket.get("produced_parts", bucket.get("cycle_count", bucket.get("total", 0)))),
         "with_load_sum": float(bucket.get("with_load_sum", 0.0)),
         "with_load_count": int(bucket.get("with_load_count", 0)),
+        "pph_cycle_count": int(bucket.get("pph_cycle_count", bucket.get("with_load_count", 0))),
+        "pph_produced_parts": int(bucket.get("pph_produced_parts", bucket.get("produced_parts", bucket.get("cycle_count", 0)))),
+        "pph_with_load_sum": float(bucket.get("pph_with_load_sum", bucket.get("with_load_sum", 0.0))),
+        "pph_with_load_count": int(bucket.get("pph_with_load_count", bucket.get("with_load_count", 0))),
     }
 
 
 def get_bucket_pph(bucket):
-    total_parts = int(bucket.get("produced_parts", bucket.get("cycle_count", 0)))
-    total_time = bucket["with_load_sum"]
-    if total_parts <= 0 or total_time <= 0:
+    eligible_cycles = int(bucket.get("pph_cycle_count", 0))
+    total_parts = int(bucket.get("pph_produced_parts", bucket.get("produced_parts", bucket.get("cycle_count", 0))))
+    total_time = float(bucket.get("pph_with_load_sum", bucket.get("with_load_sum", 0.0)))
+    if eligible_cycles < PPH_DISPLAY_READY_CYCLES or total_parts <= 0 or total_time <= 0:
         return 0
     return int(round(total_parts / (total_time / 3600.0)))
 
@@ -2097,13 +2419,223 @@ def get_average_daily_production():
     return int(round(total / len(daily_production_history)))
 
 
+def json_pretty_text(value, level=0):
+    indent = "  " * level
+    next_indent = "  " * (level + 1)
+
+    if isinstance(value, dict):
+        if not value:
+            return "{}"
+        parts = []
+        for key, item in value.items():
+            parts.append("{}{}: {}".format(next_indent, json.dumps(str(key)), json_pretty_text(item, level + 1)))
+        return "{\n" + ",\n".join(parts) + "\n" + indent + "}"
+
+    if isinstance(value, list):
+        if not value:
+            return "[]"
+        parts = []
+        for item in value:
+            parts.append("{}{}".format(next_indent, json_pretty_text(item, level + 1)))
+        return "[\n" + ",\n".join(parts) + "\n" + indent + "]"
+
+    return json.dumps(value)
+
+
+def build_machine_status_payload(existing=None):
+    if not isinstance(existing, dict):
+        existing = {}
+
+    existing_machine = existing.get("machine", {})
+    if not isinstance(existing_machine, dict):
+        existing_machine = {}
+
+    now_tuple = time.localtime()
+    current_shift = get_shift()
+    total_good_parts = int(good_count)
+    shifts_payload = {}
+
+    for shift_name in SHIFT_NAMES:
+        live_avg_seconds = int(round(get_pending_shift_average_with_load(shift_name)))
+        shifts_payload[shift_name] = {
+            "live": 1 if current_shift == shift_name else 0,
+            "off_time": 0 if current_shift == shift_name else 1,
+            "avg_with_load": format_mmss(live_avg_seconds),
+            "bad": int(pending_shift_stats[shift_name]["bad"]),
+            "good": int(pending_shift_stats[shift_name]["good"]),
+            "cycles": int(pending_shift_stats[shift_name]["cycle_count"]),
+            "pph": int(get_graph_shift_pph(shift_name)),
+            "total_parts": total_good_parts,
+        }
+
+    return {
+        "machine": {
+            "id": stats_machine_id,
+            "name": existing_machine.get("name", existing.get("machine_name", stats_machine_id)),
+            "active": bool(existing_machine.get("active", existing.get("active", True))),
+            "configured": bool(existing_machine.get("configured", existing.get("configured", True))),
+        },
+        "software": {
+            "app_version": APP_VERSION,
+            "time_sync": get_time_sync_display(),
+        },
+        "status": {
+            "last_update_local": "{:04d}-{:02d}-{:02d}T{:02d}:{:02d}:{:02d}".format(
+                now_tuple[0], now_tuple[1], now_tuple[2], now_tuple[3], now_tuple[4], now_tuple[5]
+            ),
+            "current_shift": current_shift if current_shift is not None else "OFF",
+        },
+        "shifts": shifts_payload,
+    }
+
+
+def upload_stats_to_github(manual=False):
+    global stats_upload_dirty, last_stats_upload_ms
+    if not stats_machine_id:
+        raise OSError("Stats machine ID not set")
+    if not github_stats_token:
+        raise OSError("GitHub stats token not set")
+    if connect_wifi() is None:
+        raise OSError("WiFi not connected")
+
+    api_path = "/repos/{}/{}/contents/{}?ref={}".format(
+        STATS_REPO_OWNER,
+        STATS_REPO_NAME,
+        get_stats_status_path(),
+        STATS_REPO_BRANCH,
+    )
+
+    status_code, _headers, response_text = github_api_request("GET", api_path, github_stats_token)
+    existing = {}
+    existing_sha = None
+    if status_code == 200:
+        response_obj = json.loads(response_text)
+        existing_sha = str(response_obj.get("sha", "")).strip() or None
+        content_text = str(response_obj.get("content", ""))
+        if content_text:
+            decoded = base64_decode_text(content_text)
+            try:
+                existing = json.loads(decoded.decode("utf-8", "ignore"))
+            except Exception:
+                existing = {}
+    elif status_code != 404:
+        raise OSError("GitHub read failed ({}): {}".format(status_code, parse_github_error_message(response_text)))
+
+    payload = build_machine_status_payload(existing)
+    commit_body = {
+        "message": "Update {} status from {}".format(stats_machine_id, APP_VERSION),
+        "content": base64_encode_bytes(json_pretty_text(payload).encode("utf-8")),
+        "branch": STATS_REPO_BRANCH,
+    }
+    if existing_sha:
+        commit_body["sha"] = existing_sha
+
+    status_code, _headers, _response_text = github_api_request("PUT", api_path, github_stats_token, commit_body)
+    if status_code not in (200, 201):
+        raise OSError("GitHub write failed ({}): {}".format(status_code, parse_github_error_message(_response_text)))
+
+    stats_upload_dirty = False
+    last_stats_upload_ms = time.ticks_ms()
+    settings_menu_status.set_text("Stats uploaded: {}".format(stats_machine_id))
+    if manual:
+        save_state(force=True)
+
+
+def maybe_upload_stats():
+    global last_stats_upload_ms
+    if not stats_upload_dirty or not stats_machine_id or not github_stats_token:
+        return
+    now_ms = time.ticks_ms()
+    if time.ticks_diff(now_ms, last_stats_upload_ms) < STATS_UPLOAD_INTERVAL_MS:
+        return
+    try:
+        upload_stats_to_github()
+    except Exception as err:
+        last_stats_upload_ms = now_ms
+        settings_menu_status.set_text(format_status_message("Stats upload failed: {}".format(err)))
+        print("Stats upload failed:", err)
+
+
 def mark_data_dirty():
-    global data_dirty
+    global data_dirty, stats_upload_dirty
     data_dirty = True
+    stats_upload_dirty = True
 
 
 def get_state_file_path():
     return "machine_oee_state_{}.json".format(get_reset_day_key())
+
+
+def build_config_state():
+    return {
+        "pph_goal": pph_goal,
+        "parts_per_cycle": parts_per_cycle,
+        "io_invert": io_invert,
+        "door_switch_enabled": door_switch_enabled,
+        "shift_reset_lock": shift_reset_lock,
+        "shift_reset_lead_minutes": shift_reset_lead_minutes,
+        "wifi_ssid": wifi_ssid,
+        "wifi_password": wifi_password,
+        "update_server_url": update_server_url,
+        "stats_machine_id": stats_machine_id,
+        "stats_token_import_url": stats_token_import_url,
+        "github_stats_token": github_stats_token,
+        "shift_settings": shift_settings,
+    }
+
+
+def save_config():
+    if os is None or json is None:
+        return
+    try:
+        with open(CONFIG_FILE, "w") as f:
+            json.dump(build_config_state(), f)
+    except Exception as err:
+        print("Config save failed:", err)
+
+
+def load_config():
+    global pph_goal, parts_per_cycle, io_invert, door_switch_enabled, shift_reset_lock
+    global shift_reset_lead_minutes, wifi_ssid, wifi_password, update_server_url
+    global stats_machine_id, stats_token_import_url, github_stats_token, shift_settings
+
+    if os is None or json is None:
+        return
+
+    try:
+        with open(CONFIG_FILE, "r") as f:
+            state = json.load(f)
+    except Exception:
+        return
+
+    try:
+        pph_goal = int(state.get("pph_goal", pph_goal))
+        parts_per_cycle = max(1, int(state.get("parts_per_cycle", parts_per_cycle)))
+        io_invert = bool(state.get("io_invert", io_invert))
+        door_switch_enabled = bool(state.get("door_switch_enabled", door_switch_enabled))
+        shift_reset_lock = bool(state.get("shift_reset_lock", shift_reset_lock))
+        shift_reset_lead_minutes = max(0, int(state.get("shift_reset_lead_minutes", shift_reset_lead_minutes)))
+        wifi_ssid = str(state.get("wifi_ssid", wifi_ssid))
+        wifi_password = str(state.get("wifi_password", wifi_password))
+        update_server_url = str(state.get("update_server_url", update_server_url))
+        stats_machine_id = str(state.get("stats_machine_id", stats_machine_id)).strip() or DEFAULT_STATS_MACHINE_ID
+        stats_token_import_url = normalize_import_url(state.get("stats_token_import_url", stats_token_import_url))
+        github_stats_token = str(state.get("github_stats_token", github_stats_token)).strip()
+        loaded_shift_settings = state.get("shift_settings", {})
+        for shift_name in SHIFT_NAMES:
+            shift_settings[shift_name] = normalize_shift_setting(shift_name, loaded_shift_settings.get(shift_name, shift_settings[shift_name]))
+    except Exception:
+        return
+
+
+def ensure_config_file():
+    if os is None:
+        return
+    try:
+        with open(CONFIG_FILE, "r") as f:
+            f.read(1)
+    except Exception:
+        save_config()
 
 
 def prune_old_state_files():
@@ -2145,6 +2677,9 @@ def save_state(force=False):
         "wifi_ssid": wifi_ssid,
         "wifi_password": wifi_password,
         "update_server_url": update_server_url,
+        "stats_machine_id": stats_machine_id,
+        "stats_token_import_url": stats_token_import_url,
+        "github_stats_token": github_stats_token,
         "shift_settings": shift_settings,
         "set_hour": set_hour,
         "set_minute": set_minute,
@@ -2174,7 +2709,9 @@ def load_state():
     global door_switch_enabled, shift_reset_lock
     global shift_reset_lead_minutes, daily_production_count, daily_production_reset_key
     global last_daily_production, daily_production_history, wifi_ssid, wifi_password, update_server_url
+    global stats_machine_id, stats_token_import_url, github_stats_token
     global set_hour, set_minute, time_is_set, machine_high, machine_run_start_epoch, machine_run_confirmed
+    global pending_machine_run_start_epoch, pending_cycle_shift
     global graph_shift_stats, pending_shift_stats, completed_shift_stats, graph_cycle_anchor_epoch
     global data_dirty, last_save_ms, last_daily_reset_key, shift_reset_keys, completed_shift_keys, shift_settings
 
@@ -2219,6 +2756,9 @@ def load_state():
         wifi_ssid = str(state.get("wifi_ssid", wifi_ssid))
         wifi_password = str(state.get("wifi_password", wifi_password))
         update_server_url = str(state.get("update_server_url", update_server_url))
+        stats_machine_id = str(state.get("stats_machine_id", stats_machine_id)).strip() or DEFAULT_STATS_MACHINE_ID
+        stats_token_import_url = normalize_import_url(state.get("stats_token_import_url", stats_token_import_url))
+        github_stats_token = str(state.get("github_stats_token", github_stats_token)).strip()
         set_hour = int(state.get("set_hour", set_hour))
         set_minute = int(state.get("set_minute", set_minute))
         time_is_set = bool(state.get("time_is_set", time_is_set))
@@ -2245,6 +2785,8 @@ def load_state():
         machine_high = is_signal_active(raw_value)
         machine_run_confirmed = machine_high
         machine_run_start_epoch = time.time() if machine_high else None
+        pending_machine_run_start_epoch = None
+        pending_cycle_shift = None
     except Exception:
         return
 
@@ -2292,7 +2834,7 @@ def add_bad_part():
     mark_data_dirty()
 
 
-def auto_complete_cycle(shift_name=None):
+def auto_complete_cycle(shift_name=None, include_pph=False):
     global good_count, daily_production_count
     produced = max(1, int(parts_per_cycle))
     good_count += produced
@@ -2304,6 +2846,11 @@ def auto_complete_cycle(shift_name=None):
         pending_shift_stats[shift_name]["good"] += produced
         pending_shift_stats[shift_name]["cycle_count"] += 1
         pending_shift_stats[shift_name]["produced_parts"] += produced
+        if include_pph:
+            graph_shift_stats[shift_name]["pph_cycle_count"] += 1
+            graph_shift_stats[shift_name]["pph_produced_parts"] += produced
+            pending_shift_stats[shift_name]["pph_cycle_count"] += 1
+            pending_shift_stats[shift_name]["pph_produced_parts"] += produced
     mark_data_dirty()
 
 
@@ -2520,7 +3067,7 @@ def hide_io_check_popup():
 
 def ensure_software_update_popup():
     global software_update_popup, software_update_status, software_update_list
-    global software_update_refresh, software_update_close
+    global software_update_refresh, software_update_ok, software_update_stats, software_update_close
 
     if software_update_popup is not None:
         return
@@ -2528,6 +3075,7 @@ def ensure_software_update_popup():
     software_update_popup = lv.obj(ui_SETTINGS_MENU)
     software_update_popup.set_size(640, 360)
     software_update_popup.center()
+    stabilize_widget(software_update_popup)
     software_update_popup.set_style_bg_color(lv.color_hex(0x222222), lv.PART.MAIN | lv.STATE.DEFAULT)
     software_update_popup.set_style_bg_opa(255, lv.PART.MAIN | lv.STATE.DEFAULT)
     software_update_popup.set_style_border_color(lv.color_hex(0x0A0ACC), lv.PART.MAIN | lv.STATE.DEFAULT)
@@ -2543,7 +3091,7 @@ def ensure_software_update_popup():
     software_update_title.set_style_text_font(safe_font("font_montserrat_20"), lv.PART.MAIN | lv.STATE.DEFAULT)
 
     software_update_hint = lv.label(software_update_popup)
-    software_update_hint.set_text("Refresh GitHub versions, then tap one to install")
+    software_update_hint.set_text("Refresh versions, tap one to select, then press OK")
     software_update_hint.align(lv.ALIGN.TOP_LEFT, 18, 52)
     software_update_hint.set_style_text_color(lv.color_hex(0xFFFFFF), lv.PART.MAIN | lv.STATE.DEFAULT)
     stabilize_value_label(software_update_hint, 600, lv.TEXT_ALIGN.LEFT)
@@ -2557,12 +3105,17 @@ def ensure_software_update_popup():
     software_update_list = lv.list(software_update_popup)
     software_update_list.set_size(600, 170)
     software_update_list.align(lv.ALIGN.TOP_MID, 0, 130)
+    stabilize_widget(software_update_list)
     software_update_list.set_style_bg_color(lv.color_hex(0x2D2D2D), lv.PART.MAIN | lv.STATE.DEFAULT)
     software_update_list.set_style_bg_opa(255, lv.PART.MAIN | lv.STATE.DEFAULT)
 
-    software_update_refresh = make_button(software_update_popup, "REFRESH", -120, 150, 120, 40, 0x04BE2D)
-    software_update_close = make_button(software_update_popup, "CLOSE", 120, 150, 120, 40, 0xC32331)
+    software_update_refresh = make_button(software_update_popup, "REFRESH", -210, 150, 110, 40, 0x04BE2D)
+    software_update_stats = make_button(software_update_popup, "STATS", -70, 150, 110, 40, 0x465AC4)
+    software_update_ok = make_button(software_update_popup, "OK", 70, 150, 110, 40, 0x0A0ACC)
+    software_update_close = make_button(software_update_popup, "CLOSE", 210, 150, 110, 40, 0xC32331)
     software_update_refresh.add_event_cb(software_update_refresh_event, lv.EVENT.ALL, None)
+    software_update_stats.add_event_cb(software_update_stats_event, lv.EVENT.ALL, None)
+    software_update_ok.add_event_cb(software_update_ok_event, lv.EVENT.ALL, None)
     software_update_close.add_event_cb(software_update_close_event, lv.EVENT.ALL, None)
 
 
@@ -2571,9 +3124,142 @@ def hide_software_update_popup():
         software_update_popup.add_flag(lv.obj.FLAG.HIDDEN)
 
 
+def hide_stats_config_popup():
+    if stats_config_popup is not None:
+        stats_config_popup.add_flag(lv.obj.FLAG.HIDDEN)
+
+
+def stats_config_focus_machine_event(e):
+    if e.get_code() == lv.EVENT.CLICKED or e.get_code() == lv.EVENT.FOCUSED:
+        if stats_config_kb is not None and stats_config_machine_textarea is not None:
+            stats_config_kb.set_textarea(stats_config_machine_textarea)
+
+
+def stats_config_focus_import_url_event(e):
+    if e.get_code() == lv.EVENT.CLICKED or e.get_code() == lv.EVENT.FOCUSED:
+        if stats_config_kb is not None and stats_config_import_url_textarea is not None:
+            stats_config_kb.set_textarea(stats_config_import_url_textarea)
+
+
+def stats_config_focus_token_event(e):
+    if e.get_code() == lv.EVENT.CLICKED or e.get_code() == lv.EVENT.FOCUSED:
+        if stats_config_kb is not None and stats_config_token_textarea is not None:
+            stats_config_kb.set_textarea(stats_config_token_textarea)
+
+
+def ensure_stats_config_popup():
+    global stats_config_popup, stats_config_machine_textarea, stats_config_import_url_textarea
+    global stats_config_token_textarea, stats_config_status, stats_config_kb
+    global stats_config_save, stats_config_import, stats_config_upload, stats_config_close
+
+    if stats_config_popup is not None:
+        return
+
+    stats_config_popup = lv.obj(ui_SETTINGS_MENU)
+    stats_config_popup.set_size(640, 420)
+    stats_config_popup.center()
+    stabilize_widget(stats_config_popup)
+    stats_config_popup.set_style_bg_color(lv.color_hex(0x222222), lv.PART.MAIN | lv.STATE.DEFAULT)
+    stats_config_popup.set_style_bg_opa(255, lv.PART.MAIN | lv.STATE.DEFAULT)
+    stats_config_popup.set_style_border_color(lv.color_hex(0x0A0ACC), lv.PART.MAIN | lv.STATE.DEFAULT)
+    stats_config_popup.set_style_border_width(3, lv.PART.MAIN | lv.STATE.DEFAULT)
+    stats_config_popup.set_style_radius(8, lv.PART.MAIN | lv.STATE.DEFAULT)
+    stats_config_popup.clear_flag(lv.obj.FLAG.SCROLLABLE)
+    stats_config_popup.add_flag(lv.obj.FLAG.HIDDEN)
+
+    stats_title = lv.label(stats_config_popup)
+    stats_title.set_text("GITHUB STATS")
+    stats_title.align(lv.ALIGN.TOP_MID, 0, 12)
+    stats_title.set_style_text_color(lv.color_hex(0xFCA903), lv.PART.MAIN | lv.STATE.DEFAULT)
+    stats_title.set_style_text_font(safe_font("font_montserrat_20"), lv.PART.MAIN | lv.STATE.DEFAULT)
+
+    stats_info = lv.label(stats_config_popup)
+    stats_info.set_text("Repo: {}/{}".format(STATS_REPO_OWNER, STATS_REPO_NAME))
+    stats_info.align(lv.ALIGN.TOP_LEFT, 18, 50)
+    stats_info.set_style_text_color(lv.color_hex(0xFFFFFF), lv.PART.MAIN | lv.STATE.DEFAULT)
+    stabilize_value_label(stats_info, 420, lv.TEXT_ALIGN.LEFT)
+
+    machine_label = lv.label(stats_config_popup)
+    machine_label.set_text("Machine ID")
+    machine_label.align(lv.ALIGN.TOP_LEFT, 18, 76)
+    machine_label.set_style_text_color(lv.color_hex(0xAAAAAA), lv.PART.MAIN | lv.STATE.DEFAULT)
+
+    stats_config_machine_textarea = lv.textarea(stats_config_popup)
+    stats_config_machine_textarea.set_size(260, 40)
+    stats_config_machine_textarea.align(lv.ALIGN.TOP_LEFT, 18, 100)
+    stats_config_machine_textarea.set_one_line(True)
+    stats_config_machine_textarea.set_placeholder_text("matsuura")
+    stabilize_widget(stats_config_machine_textarea)
+    stats_config_machine_textarea.add_event_cb(stats_config_focus_machine_event, lv.EVENT.ALL, None)
+
+    import_url_label = lv.label(stats_config_popup)
+    import_url_label.set_text("PC Token URL")
+    import_url_label.align(lv.ALIGN.TOP_LEFT, 18, 144)
+    import_url_label.set_style_text_color(lv.color_hex(0xAAAAAA), lv.PART.MAIN | lv.STATE.DEFAULT)
+
+    stats_config_import_url_textarea = lv.textarea(stats_config_popup)
+    stats_config_import_url_textarea.set_size(600, 40)
+    stats_config_import_url_textarea.align(lv.ALIGN.TOP_LEFT, 18, 170)
+    stats_config_import_url_textarea.set_one_line(True)
+    stats_config_import_url_textarea.set_placeholder_text("http://192.168.1.50:8766")
+    stabilize_widget(stats_config_import_url_textarea)
+    stats_config_import_url_textarea.add_event_cb(stats_config_focus_import_url_event, lv.EVENT.ALL, None)
+
+    token_label = lv.label(stats_config_popup)
+    token_label.set_text("GitHub Token")
+    token_label.align(lv.ALIGN.TOP_LEFT, 18, 214)
+    token_label.set_style_text_color(lv.color_hex(0xAAAAAA), lv.PART.MAIN | lv.STATE.DEFAULT)
+
+    stats_config_token_textarea = lv.textarea(stats_config_popup)
+    stats_config_token_textarea.set_size(600, 40)
+    stats_config_token_textarea.align(lv.ALIGN.TOP_LEFT, 18, 240)
+    stats_config_token_textarea.set_one_line(True)
+    stats_config_token_textarea.set_password_mode(True)
+    stats_config_token_textarea.set_placeholder_text("github_pat_...")
+    stabilize_widget(stats_config_token_textarea)
+    stats_config_token_textarea.add_event_cb(stats_config_focus_token_event, lv.EVENT.ALL, None)
+
+    stats_config_status = lv.label(stats_config_popup)
+    stats_config_status.set_text("")
+    stats_config_status.align(lv.ALIGN.TOP_LEFT, 18, 286)
+    stats_config_status.set_style_text_color(lv.color_hex(0xFCA903), lv.PART.MAIN | lv.STATE.DEFAULT)
+    stabilize_value_label(stats_config_status, 600, lv.TEXT_ALIGN.LEFT)
+
+    stats_config_kb = lv.keyboard(stats_config_popup)
+    stats_config_kb.set_size(600, 70)
+    stats_config_kb.align(lv.ALIGN.BOTTOM_MID, 0, -14)
+    stats_config_kb.set_textarea(stats_config_token_textarea)
+    stabilize_widget(stats_config_kb)
+
+    stats_config_save = make_button(stats_config_popup, "SAVE", -180, -82, 100, 40, 0x04BE2D)
+    stats_config_import = make_button(stats_config_popup, "IMPORT", -60, -82, 100, 40, 0x0A0ACC)
+    stats_config_upload = make_button(stats_config_popup, "UPLOAD", 60, -82, 100, 40, 0x465AC4)
+    stats_config_close = make_button(stats_config_popup, "CLOSE", 180, -82, 100, 40, 0xC32331)
+    stats_config_save.add_event_cb(stats_config_save_event, lv.EVENT.ALL, None)
+    stats_config_import.add_event_cb(stats_config_import_event, lv.EVENT.ALL, None)
+    stats_config_upload.add_event_cb(stats_config_upload_event, lv.EVENT.ALL, None)
+    stats_config_close.add_event_cb(stats_config_close_event, lv.EVENT.ALL, None)
+
+
+def show_stats_config_popup():
+    ensure_stats_config_popup()
+    stats_config_machine_textarea.set_text(stats_machine_id)
+    stats_config_import_url_textarea.set_text(stats_token_import_url)
+    stats_config_token_textarea.set_text(github_stats_token)
+    stats_config_kb.set_textarea(stats_config_token_textarea)
+    stats_config_status.set_text("Status path: {}".format(get_stats_status_path()))
+    hide_software_update_popup()
+    stats_config_popup.clear_flag(lv.obj.FLAG.HIDDEN)
+    stats_config_popup.move_foreground()
+
+
 def clear_software_update_list():
-    global software_update_callbacks
+    global software_update_callbacks, software_update_selected_entry
+    global software_update_selected_btn, software_update_entry_buttons
     software_update_callbacks = []
+    software_update_selected_entry = None
+    software_update_selected_btn = None
+    software_update_entry_buttons = []
     try:
         if software_update_list is not None:
             software_update_list.clean()
@@ -2581,11 +3267,34 @@ def clear_software_update_list():
         pass
 
 
-def make_software_update_entry_event(entry):
+def set_software_update_entry_button_style(btn, selected):
+    if btn is None:
+        return
+    if selected:
+        btn.set_style_bg_color(lv.color_hex(0x0A0ACC), lv.PART.MAIN | lv.STATE.DEFAULT)
+        btn.set_style_border_color(lv.color_hex(0xFCA903), lv.PART.MAIN | lv.STATE.DEFAULT)
+        btn.set_style_border_width(2, lv.PART.MAIN | lv.STATE.DEFAULT)
+    else:
+        btn.set_style_bg_color(lv.color_hex(0x2D2D2D), lv.PART.MAIN | lv.STATE.DEFAULT)
+        btn.set_style_border_color(lv.color_hex(0x555555), lv.PART.MAIN | lv.STATE.DEFAULT)
+        btn.set_style_border_width(1, lv.PART.MAIN | lv.STATE.DEFAULT)
+
+
+def select_software_update_entry(entry, btn):
+    global software_update_selected_entry, software_update_selected_btn
+    if software_update_selected_btn is not None:
+        set_software_update_entry_button_style(software_update_selected_btn, False)
+    software_update_selected_entry = entry
+    software_update_selected_btn = btn
+    set_software_update_entry_button_style(btn, True)
+    software_update_status.set_text("Selected: {}  Press OK to install".format(entry.get("version", "")))
+
+
+def make_software_update_entry_event(entry, btn):
     def _event(e):
         if e.get_code() != lv.EVENT.CLICKED:
             return
-        software_update_install_event(entry)
+        select_software_update_entry(entry, btn)
     return _event
 
 
@@ -2597,6 +3306,7 @@ def ensure_settings_number_popup():
     settings_number_popup = lv.obj(ui_SETTINGS_MENU)
     settings_number_popup.set_size(320, 360)
     settings_number_popup.center()
+    stabilize_widget(settings_number_popup)
     settings_number_popup.set_style_bg_color(lv.color_hex(0x222222), lv.PART.MAIN | lv.STATE.DEFAULT)
     settings_number_popup.set_style_bg_opa(255, lv.PART.MAIN | lv.STATE.DEFAULT)
     settings_number_popup.set_style_border_color(lv.color_hex(0x0A0ACC), lv.PART.MAIN | lv.STATE.DEFAULT)
@@ -2617,6 +3327,7 @@ def ensure_settings_number_popup():
     settings_number_textarea.set_one_line(True)
     settings_number_textarea.set_max_length(6)
     settings_number_textarea.set_text("0")
+    stabilize_widget(settings_number_textarea)
 
     settings_number_kb = lv.btnmatrix(settings_number_popup)
     settings_number_kb.set_map([
@@ -2628,6 +3339,7 @@ def ensure_settings_number_popup():
     ])
     settings_number_kb.set_size(280, 210)
     settings_number_kb.align(lv.ALIGN.BOTTOM_MID, 0, -12)
+    stabilize_widget(settings_number_kb)
     settings_number_kb.add_event_cb(settings_number_kb_event, lv.EVENT.ALL, None)
 
 
@@ -2639,6 +3351,7 @@ def ensure_wifi_scan_popup():
     wifi_scan_popup = lv.obj(ui_SETTINGS_MENU)
     wifi_scan_popup.set_size(520, 360)
     wifi_scan_popup.center()
+    stabilize_widget(wifi_scan_popup)
     wifi_scan_popup.set_style_bg_color(lv.color_hex(0x222222), lv.PART.MAIN | lv.STATE.DEFAULT)
     wifi_scan_popup.set_style_bg_opa(255, lv.PART.MAIN | lv.STATE.DEFAULT)
     wifi_scan_popup.set_style_border_color(lv.color_hex(0x0A0ACC), lv.PART.MAIN | lv.STATE.DEFAULT)
@@ -2666,6 +3379,7 @@ def ensure_wifi_scan_popup():
     wifi_list = lv.list(wifi_scan_popup)
     wifi_list.set_size(470, 200)
     wifi_list.align(lv.ALIGN.BOTTOM_MID, 0, -14)
+    stabilize_widget(wifi_list)
     wifi_list.set_style_bg_color(lv.color_hex(0x2D2D2D), lv.PART.MAIN | lv.STATE.DEFAULT)
     wifi_list.set_style_bg_opa(255, lv.PART.MAIN | lv.STATE.DEFAULT)
 
@@ -2679,6 +3393,7 @@ def ensure_wifi_password_popup():
     wifi_password_popup = lv.obj(ui_SETTINGS_MENU)
     wifi_password_popup.set_size(620, 360)
     wifi_password_popup.center()
+    stabilize_widget(wifi_password_popup)
     wifi_password_popup.set_style_bg_color(lv.color_hex(0x222222), lv.PART.MAIN | lv.STATE.DEFAULT)
     wifi_password_popup.set_style_bg_opa(255, lv.PART.MAIN | lv.STATE.DEFAULT)
     wifi_password_popup.set_style_border_color(lv.color_hex(0x0A0ACC), lv.PART.MAIN | lv.STATE.DEFAULT)
@@ -2709,11 +3424,13 @@ def ensure_wifi_password_popup():
     wifi_password_textarea.set_one_line(True)
     wifi_password_textarea.set_password_mode(True)
     wifi_password_textarea.set_placeholder_text("Password")
+    stabilize_widget(wifi_password_textarea)
 
     wifi_password_kb = lv.keyboard(wifi_password_popup)
     wifi_password_kb.set_size(580, 140)
     wifi_password_kb.align(lv.ALIGN.BOTTOM_MID, 0, -12)
     wifi_password_kb.set_textarea(wifi_password_textarea)
+    stabilize_widget(wifi_password_kb)
 
     wifi_password_connect = make_button(wifi_password_popup, "CONNECT", -120, -22, 120, 40, 0x04BE2D)
     wifi_password_cancel = make_button(wifi_password_popup, "CANCEL", 120, -22, 120, 40, 0xC32331)
@@ -2729,6 +3446,7 @@ def ensure_shift_hours_popup():
     shift_hours_popup = lv.obj(ui_SETTINGS_MENU)
     shift_hours_popup.set_size(660, 360)
     shift_hours_popup.center()
+    stabilize_widget(shift_hours_popup)
     shift_hours_popup.set_style_bg_color(lv.color_hex(0x222222), lv.PART.MAIN | lv.STATE.DEFAULT)
     shift_hours_popup.set_style_bg_opa(255, lv.PART.MAIN | lv.STATE.DEFAULT)
     shift_hours_popup.set_style_border_color(lv.color_hex(0x0A0ACC), lv.PART.MAIN | lv.STATE.DEFAULT)
@@ -2768,6 +3486,7 @@ def ensure_invert_popup():
     invert_popup = lv.obj(ui_SETTINGS_MENU)
     invert_popup.set_size(340, 220)
     invert_popup.center()
+    stabilize_widget(invert_popup)
     invert_popup.set_style_bg_color(lv.color_hex(0x222222), lv.PART.MAIN | lv.STATE.DEFAULT)
     invert_popup.set_style_bg_opa(255, lv.PART.MAIN | lv.STATE.DEFAULT)
     invert_popup.set_style_border_color(lv.color_hex(0x0A0ACC), lv.PART.MAIN | lv.STATE.DEFAULT)
@@ -2785,6 +3504,7 @@ def ensure_invert_popup():
     invert_checkbox = lv.checkbox(invert_popup)
     invert_checkbox.set_text("Invert IO44 active state")
     invert_checkbox.align(lv.ALIGN.CENTER, 0, -12)
+    stabilize_widget(invert_checkbox)
 
     invert_save = make_button(invert_popup, "SAVE", -90, 72, 100, 42, 0x04BE2D)
     invert_cancel = make_button(invert_popup, "CANCEL", 90, 72, 100, 42, 0xC32331)
@@ -2800,6 +3520,7 @@ def ensure_io_check_popup():
     io_check_popup = lv.obj(ui_SETTINGS_MENU)
     io_check_popup.set_size(320, 180)
     io_check_popup.center()
+    stabilize_widget(io_check_popup)
     io_check_popup.set_style_bg_color(lv.color_hex(0x222222), lv.PART.MAIN | lv.STATE.DEFAULT)
     io_check_popup.set_style_bg_opa(255, lv.PART.MAIN | lv.STATE.DEFAULT)
     io_check_popup.set_style_border_color(lv.color_hex(0x0A0ACC), lv.PART.MAIN | lv.STATE.DEFAULT)
@@ -2832,6 +3553,7 @@ def hide_all_settings_popups():
     hide_invert_popup()
     hide_io_check_popup()
     hide_software_update_popup()
+    hide_stats_config_popup()
 
 
 def refresh_io_check_label():
@@ -2842,6 +3564,17 @@ def refresh_io_check_label():
         io_check_label,
         "IO44 = {}".format("LOW" if run_pin.value() == 0 else "HIGH"),
     )
+
+
+def get_ui_refresh_interval_ms():
+    current_screen = lv.scr_act()
+    if current_screen == ui_SETTINGS_MENU:
+        return UI_REFRESH_SETTINGS_MS
+    if current_screen == ui_SETTINGS:
+        return UI_REFRESH_SETTINGS_MS
+    if machine_high or current_cycle_start_epoch is not None:
+        return UI_REFRESH_ACTIVE_MS
+    return UI_REFRESH_IDLE_MS
 
 
 def show_software_update_popup():
@@ -2871,7 +3604,7 @@ def refresh_software_update_popup():
             software_update_status.set_text("No OTA versions found on GitHub")
             return
 
-        software_update_status.set_text("Current: {}  Tap a version to install".format(APP_VERSION))
+        software_update_status.set_text("Current: {}  Tap a version to select".format(APP_VERSION))
         download_icon = ""
         try:
             download_icon = lv.SYMBOL.DOWN
@@ -2884,9 +3617,12 @@ def refresh_software_update_popup():
                 label += "  latest"
             if entry["version"] == APP_VERSION:
                 label += "  current"
-            callback = make_software_update_entry_event(entry)
-            software_update_callbacks.append(callback)
             btn = software_update_list.add_btn(download_icon, label)
+            stabilize_button(btn)
+            set_software_update_entry_button_style(btn, False)
+            software_update_entry_buttons.append(btn)
+            callback = make_software_update_entry_event(entry, btn)
+            software_update_callbacks.append(callback)
             btn.add_event_cb(callback, lv.EVENT.ALL, None)
     except Exception as err:
         software_update_status.set_text("GitHub update check failed: {}".format(err))
@@ -2895,7 +3631,7 @@ def refresh_software_update_popup():
 def maybe_update_ui():
     global last_ui_refresh_ms
     now_ms = time.ticks_ms()
-    if time.ticks_diff(now_ms, last_ui_refresh_ms) < UI_REFRESH_MS:
+    if time.ticks_diff(now_ms, last_ui_refresh_ms) < get_ui_refresh_interval_ms():
         return
     last_ui_refresh_ms = now_ms
     update_ui()
@@ -2923,10 +3659,49 @@ def show_shift_hours_popup():
 
 def apply_signal_mode():
     global machine_high, machine_run_start_epoch, machine_run_confirmed
+    global pending_machine_run_start_epoch, pending_cycle_shift
     raw_value = run_pin.value()
     machine_high = is_signal_active(raw_value)
     machine_run_confirmed = machine_high
     machine_run_start_epoch = time.time() if machine_high else None
+    pending_machine_run_start_epoch = None
+    pending_cycle_shift = None
+
+
+def clear_pending_cycle_start():
+    global pending_machine_run_start_epoch, pending_cycle_shift
+    pending_machine_run_start_epoch = None
+    pending_cycle_shift = None
+
+
+def start_pending_cycle(active_shift):
+    global pending_machine_run_start_epoch, pending_cycle_shift
+    if pending_machine_run_start_epoch is None:
+        pending_machine_run_start_epoch = time.time()
+        if active_shift is not None:
+            pending_cycle_shift = active_shift
+        else:
+            pending_cycle_shift = OFF_SHIFT_CYCLE
+
+
+def confirm_pending_cycle_start():
+    global machine_high, machine_run_start_epoch, machine_run_confirmed
+    global current_cycle_start_epoch, current_cycle_shift, current_machine_run_seconds
+    if pending_machine_run_start_epoch is None:
+        return False
+    now_epoch = time.time()
+    elapsed = max(0, int(now_epoch - pending_machine_run_start_epoch))
+    if elapsed <= MIN_CYCLE_SECONDS:
+        return False
+    machine_high = True
+    machine_run_start_epoch = pending_machine_run_start_epoch
+    machine_run_confirmed = True
+    current_machine_run_seconds = elapsed
+    current_cycle_shift = pending_cycle_shift
+    if current_cycle_start_epoch is None:
+        current_cycle_start_epoch = pending_machine_run_start_epoch
+    clear_pending_cycle_start()
+    return True
 
 
 def apply_shift_settings_from_popup():
@@ -2949,6 +3724,7 @@ def apply_shift_settings_from_popup():
     mark_data_dirty()
     hide_shift_hours_popup()
     update_ui()
+    save_config()
     save_state(force=True)
 
 
@@ -2963,13 +3739,16 @@ def show_invert_popup():
 
 
 def apply_invert_setting():
-    global io_invert
+    global io_invert, pending_machine_run_start_epoch, pending_cycle_shift
     io_invert = invert_checkbox.has_state(lv.STATE.CHECKED)
     apply_signal_mode()
+    pending_machine_run_start_epoch = None
+    pending_cycle_shift = None
     settings_menu_status.set_text("Cycle input invert {}".format("ON" if io_invert else "OFF"))
     mark_data_dirty()
     hide_invert_popup()
     update_ui()
+    save_config()
     save_state(force=True)
 
 
@@ -3012,6 +3791,7 @@ def refresh_wifi_scan_popup():
 
     for ssid_text in wifi_scan_results:
         btn = wifi_list.add_btn(wifi_icon, ssid_text)
+        stabilize_button(btn)
         callback = make_wifi_network_event(ssid_text)
         wifi_network_callbacks.append(callback)
         btn.add_event_cb(callback, lv.EVENT.ALL, None)
@@ -3080,6 +3860,7 @@ def connect_selected_wifi():
     wifi_password_status.set_text("Connected")
     settings_menu_status.set_text("WiFi connected: {}".format(selected_wifi_ssid))
     update_ui()
+    save_config()
     save_state(force=True)
     hide_wifi_password_popup()
     show_wifi_scan_popup()
@@ -3132,10 +3913,7 @@ def update_stats_screen():
         set_cached_label_text("stats_{}_pph".format(shift_name), widgets["pph"], "PPH: {}".format(get_completed_shift_pph(shift_name)))
 
 
-def update_ui():
-    current_shift = get_shift()
-    now_tuple = time.localtime()
-
+def update_main_screen_ui(current_shift):
     set_cached_label_text("good_count", ui_Good_Count_bar, good_count)
     set_cached_label_text("bad_count", ui_Label8, bad_count)
     set_cached_label_text("bad_pct", ui_BAD_PARTS_PRC, "{:.1f}".format(safe_pct(bad_count, good_count)))
@@ -3166,6 +3944,9 @@ def update_ui():
     set_cached_label_text("avg_load_time", ui_AVRG_LOAD_TIME_NUMBER, "0m 0s")
     set_cached_label_text("avg_idle_time", ui_AVRG_IDLE_TIME_NUMBER, "0m 0s")
     set_door_switch_visibility()
+
+
+def update_settings_menu_ui(now_tuple):
     set_cached_label_text(
         "settings_wifi_text",
         ui_WiFi_Settings_Text,
@@ -3213,7 +3994,19 @@ def update_ui():
     set_cached_label_text("settings_time", ui_Time, format_hhmmss(now_tuple[3], now_tuple[4], now_tuple[5]))
     set_cached_label_text("settings_time_sync", ui_Time_Sync, get_time_sync_display())
     refresh_io_check_label()
-    update_stats_screen()
+
+
+def update_ui():
+    current_shift = get_shift()
+    now_tuple = time.localtime()
+    current_screen = lv.scr_act()
+
+    if current_screen == ui_MAIN_SCREEN:
+        update_main_screen_ui(current_shift)
+    elif current_screen == ui_SETTINGS:
+        update_stats_screen()
+    elif current_screen == ui_SETTINGS_MENU:
+        update_settings_menu_ui(now_tuple)
 
 
 def sync_live_timers():
@@ -3223,13 +4016,7 @@ def sync_live_timers():
     active_shift = get_shift()
 
     if machine_high and machine_run_start_epoch is not None:
-        elapsed = max(0, int(now - machine_run_start_epoch))
-        if machine_run_confirmed or elapsed > MIN_CYCLE_SECONDS:
-            if not machine_run_confirmed:
-                machine_run_confirmed = True
-                if current_cycle_start_epoch is None:
-                    current_cycle_start_epoch = machine_run_start_epoch
-            current_machine_run_seconds = elapsed
+        current_machine_run_seconds = max(0, int(now - machine_run_start_epoch))
 
     if active_shift != current_cycle_shift and not machine_high:
         current_cycle_start_epoch = None
@@ -3331,7 +4118,12 @@ def bad_label_reset_event(e):
 
 
 def change_screen_gesture_event(e):
+    global last_gesture_ms
     if e.get_code() != lv.EVENT.GESTURE:
+        return
+
+    now_ms = time.ticks_ms()
+    if time.ticks_diff(now_ms, last_gesture_ms) < GESTURE_COOLDOWN_MS:
         return
 
     indev = lv.indev_get_act()
@@ -3345,13 +4137,17 @@ def change_screen_gesture_event(e):
         hide_goal_popup()
         hide_count_popup()
         lv.scr_load(ui_SETTINGS)
+        update_ui()
+        last_gesture_ms = now_ms
     elif direction == lv.DIR.RIGHT and current_screen == ui_SETTINGS:
         hide_goal_popup()
         hide_count_popup()
-        lv.scr_load(ui_MAIN_SCREEN)
+        load_main_screen_with_guard()
+        last_gesture_ms = now_ms
     elif direction == lv.DIR.RIGHT and current_screen == ui_SETTINGS_MENU:
         hide_all_settings_popups()
-        lv.scr_load(ui_MAIN_SCREEN)
+        load_main_screen_with_guard()
+        last_gesture_ms = now_ms
 
 
 def daily_production_hold_event(e):
@@ -3387,6 +4183,7 @@ def door_switch_toggle_event(e):
     set_door_switch_visibility()
     settings_menu_status.set_text("Door switch {}".format("enabled" if door_switch_enabled else "disabled"))
     update_ui()
+    save_config()
     save_state(force=True)
 
 
@@ -3402,6 +4199,7 @@ def shift_reset_lock_toggle_event(e):
     mark_data_dirty()
     settings_menu_status.set_text("Shift reset {}".format("locked" if shift_reset_lock else "unlocked"))
     update_ui()
+    save_config()
     save_state(force=True)
 
 
@@ -3494,6 +4292,7 @@ def settings_number_kb_event(e):
         mark_data_dirty()
         hide_settings_number_popup()
         update_ui()
+        save_config()
         save_state(force=True)
     elif txt == "CANCEL":
         hide_settings_number_popup()
@@ -3512,6 +4311,7 @@ def settings_button_event(e):
     hide_count_popup()
     hide_all_settings_popups()
     lv.scr_load(ui_SETTINGS_MENU)
+    update_ui()
 
 
 def wifi_settings_event(e):
@@ -3620,6 +4420,21 @@ def software_update_refresh_event(e):
     refresh_software_update_popup()
 
 
+def software_update_stats_event(e):
+    if e.get_code() != lv.EVENT.CLICKED:
+        return
+    show_stats_config_popup()
+
+
+def software_update_ok_event(e):
+    if e.get_code() != lv.EVENT.CLICKED:
+        return
+    if not isinstance(software_update_selected_entry, dict):
+        software_update_status.set_text("Select a version first")
+        return
+    software_update_install_event(software_update_selected_entry)
+
+
 def software_update_install_event(entry):
     if not isinstance(entry, dict):
         return
@@ -3645,8 +4460,85 @@ def software_update_close_event(e):
     hide_software_update_popup()
 
 
+def apply_stats_config_from_popup():
+    global stats_machine_id, stats_token_import_url, github_stats_token
+    new_machine_id = str(stats_config_machine_textarea.get_text()).strip()
+    new_import_url = normalize_import_url(stats_config_import_url_textarea.get_text())
+    new_token = str(stats_config_token_textarea.get_text()).strip()
+    if not new_machine_id:
+        raise ValueError("Machine ID required")
+    stats_machine_id = new_machine_id
+    stats_token_import_url = new_import_url
+    github_stats_token = new_token
+    mark_data_dirty()
+    settings_menu_status.set_text("Stats config saved: {}".format(stats_machine_id))
+    stats_config_status.set_text("Saved locally on screen")
+    update_ui()
+    save_config()
+    save_state(force=True)
+
+
+def stats_config_save_event(e):
+    if e.get_code() != lv.EVENT.CLICKED:
+        return
+    try:
+        apply_stats_config_from_popup()
+    except Exception as err:
+        stats_config_status.set_text(str(err))
+
+
+def stats_config_import_event(e):
+    global stats_machine_id, stats_token_import_url, github_stats_token
+    if e.get_code() != lv.EVENT.CLICKED:
+        return
+    try:
+        new_machine_id = str(stats_config_machine_textarea.get_text()).strip()
+        if not new_machine_id:
+            raise ValueError("Machine ID required")
+        stats_config_status.set_text("Importing token...")
+        import_url, imported_token = import_stats_token_from_url(stats_config_import_url_textarea.get_text())
+        stats_machine_id = new_machine_id
+        stats_token_import_url = import_url
+        github_stats_token = imported_token
+        stats_config_import_url_textarea.set_text(stats_token_import_url)
+        stats_config_token_textarea.set_text(github_stats_token)
+        mark_data_dirty()
+        settings_menu_status.set_text("Stats token imported")
+        stats_config_status.set_text("Token imported from PC")
+        update_ui()
+        save_config()
+        save_state(force=True)
+    except Exception as err:
+        stats_config_status.set_text(format_status_message("Import failed: {}".format(err), 78))
+        settings_menu_status.set_text(format_status_message("Token import failed: {}".format(err)))
+        print("Token import failed:", err)
+
+
+def stats_config_upload_event(e):
+    if e.get_code() != lv.EVENT.CLICKED:
+        return
+    try:
+        apply_stats_config_from_popup()
+        stats_config_status.set_text("Uploading...")
+        upload_stats_to_github(manual=True)
+        stats_config_status.set_text("Upload complete")
+    except Exception as err:
+        stats_config_status.set_text(format_status_message("Upload failed: {}".format(err), 78))
+        settings_menu_status.set_text(format_status_message("Stats upload failed: {}".format(err)))
+        print("Stats upload failed:", err)
+
+
+def stats_config_close_event(e):
+    if e.get_code() != lv.EVENT.CLICKED:
+        return
+    hide_stats_config_popup()
+    show_software_update_popup()
+
+
 def good_event(e):
     if e.get_code() != lv.EVENT.CLICKED:
+        return
+    if main_screen_button_guard_active():
         return
     trigger_good_flash()
     add_good_part()
@@ -3657,6 +4549,8 @@ def good_event(e):
 
 def bad_event(e):
     if e.get_code() != lv.EVENT.CLICKED:
+        return
+    if main_screen_button_guard_active():
         return
     trigger_bad_flash()
     add_bad_part()
@@ -3700,6 +4594,7 @@ def goal_kb_event(e):
                 new_goal = 1
             pph_goal = new_goal
             mark_data_dirty()
+            save_config()
             save_state(force=True)
             update_ui()
         hide_goal_popup()
@@ -3745,6 +4640,7 @@ def min_minus_event(e):
 def time_ok_event(e):
     global time_is_set, current_cycle_start_epoch, current_cycle_shift
     global last_cycle_complete_epoch, time_source_label, machine_run_confirmed
+    global pending_machine_run_start_epoch, pending_cycle_shift
     if e.get_code() != lv.EVENT.CLICKED:
         return
 
@@ -3754,6 +4650,8 @@ def time_ok_event(e):
     current_cycle_start_epoch = None
     current_cycle_shift = None
     machine_run_confirmed = False
+    pending_machine_run_start_epoch = None
+    pending_cycle_shift = None
     last_cycle_complete_epoch = now
     time_is_set = True
     time_source_label = "Default"
@@ -3761,7 +4659,7 @@ def time_ok_event(e):
     save_state(force=True)
     sync_live_timers()
     update_ui()
-    lv.scr_load(ui_MAIN_SCREEN)
+    load_main_screen_with_guard()
 
 
 ui_Button1.add_event_cb(good_event, lv.EVENT.ALL, None)
@@ -3800,6 +4698,9 @@ btn_time_ok.add_event_cb(time_ok_event, lv.EVENT.ALL, None)
 
 lv.scr_load(startup_scr)
 load_state()
+load_config()
+ensure_config_file()
+apply_signal_mode()
 set_door_switch_visibility()
 initialize_shift_reset_keys()
 if time_is_set:
@@ -3842,16 +4743,13 @@ while True:
             elif time.ticks_diff(now_ms, last_change_ms) >= DEBOUNCE_MS:
                 active_shift = get_shift()
                 signal_active = is_signal_active(raw)
-                if signal_active and not machine_high:
-                    machine_high = True
-                    machine_run_start_epoch = time.time()
-                    machine_run_confirmed = False
-                    if current_cycle_start_epoch is None:
-                        if active_shift is not None:
-                            current_cycle_shift = active_shift
-                        else:
-                            current_cycle_shift = OFF_SHIFT_CYCLE
-                elif (not signal_active) and machine_high:
+                if signal_active:
+                    if not machine_high:
+                        start_pending_cycle(active_shift)
+                        confirm_pending_cycle_start()
+                else:
+                    clear_pending_cycle_start()
+                if (not signal_active) and machine_high:
                     machine_high = False
                     now_epoch = time.time()
                     completed_cycle_shift = current_cycle_shift
@@ -3862,6 +4760,8 @@ while True:
                         if current_cycle_start_epoch is not None and completed_cycle_shift in pending_shift_stats:
                             cycle_with_load_seconds = max(0, now_epoch - current_cycle_start_epoch)
                             current_cycle_with_load_seconds = int(cycle_with_load_seconds)
+                            cycle_number = int(graph_shift_stats[completed_cycle_shift]["cycle_count"]) + 1
+                            include_pph = should_include_cycle_in_pph(completed_cycle_shift, cycle_number, now_epoch)
 
                             graph_cycle_start_epoch = current_cycle_start_epoch
                             graph_anchor_epoch = graph_cycle_anchor_epoch[completed_cycle_shift]
@@ -3869,14 +4769,17 @@ while True:
                                 graph_cycle_start_epoch = graph_anchor_epoch
                             graph_cycle_with_load_seconds = max(0, now_epoch - graph_cycle_start_epoch)
 
-                            graph_shift_stats[completed_cycle_shift]["with_load_sum"] += graph_cycle_with_load_seconds
-                            graph_shift_stats[completed_cycle_shift]["with_load_count"] += 1
                             graph_cycle_anchor_epoch[completed_cycle_shift] = now_epoch
                             pending_shift_stats[completed_cycle_shift]["with_load_sum"] += cycle_with_load_seconds
                             pending_shift_stats[completed_cycle_shift]["with_load_count"] += 1
+                            if include_pph:
+                                graph_shift_stats[completed_cycle_shift]["pph_with_load_sum"] += graph_cycle_with_load_seconds
+                                graph_shift_stats[completed_cycle_shift]["pph_with_load_count"] += 1
+                                pending_shift_stats[completed_cycle_shift]["pph_with_load_sum"] += cycle_with_load_seconds
+                                pending_shift_stats[completed_cycle_shift]["pph_with_load_count"] += 1
                             mark_data_dirty()
 
-                            auto_complete_cycle(completed_cycle_shift)
+                            auto_complete_cycle(completed_cycle_shift, include_pph=include_pph)
                         elif current_cycle_start_epoch is not None:
                             auto_complete_cycle(None)
                             current_cycle_with_load_seconds = 0
@@ -3904,6 +4807,7 @@ while True:
             sync_live_timers()
             update_button_feedback()
             maybe_update_ui()
+            maybe_upload_stats()
             save_state()
         else:
             maybe_run_boot_wifi_sync()
