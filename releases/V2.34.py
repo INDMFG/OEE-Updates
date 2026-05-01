@@ -28,7 +28,7 @@ PPH_STOP_BEFORE_SHIFT_END_MINUTES = 30
 DEFAULT_YEAR = 2026
 DEFAULT_MONTH = 4
 DEFAULT_DAY = 11
-APP_VERSION = "V2.33"
+APP_VERSION = "V2.34"
 BUTTON_FLASH_MS = 140
 SAVE_INTERVAL_MS = 120000
 STATE_FILE = "machine_oee_state.json"
@@ -56,6 +56,10 @@ OTA_MANIFEST_URL = UPDATE_SERVER_URL
 STATS_REPO_OWNER = "INDMFG"
 STATS_REPO_NAME = "Machine-Stats"
 STATS_REPO_BRANCH = "main"
+NOTES_REPO_OWNER = "INDMFG"
+NOTES_REPO_NAME = "Notes"
+NOTES_REPO_BRANCH = "main"
+NOTES_TEXT_EXTENSIONS = (".txt", ".md", ".json", ".csv")
 DEFAULT_STATS_MACHINE_ID = "matsuura"
 DEFAULT_STATS_TOKEN_IMPORT_URL = ""
 STATS_UPLOAD_INTERVAL_MS = 120000
@@ -1052,6 +1056,59 @@ stats_widgets = {
     "C": stats_box_c_info,
 }
 
+notes_overlay = lv.obj(ui_SETTINGS)
+notes_overlay.set_size(WIDTH, HEIGHT)
+notes_overlay.align(lv.ALIGN.CENTER, 0, 0)
+SetFlag(notes_overlay, lv.obj.FLAG.SCROLLABLE, False)
+stabilize_widget(notes_overlay)
+notes_overlay.set_style_radius(0, lv.PART.MAIN | lv.STATE.DEFAULT)
+notes_overlay.set_style_bg_color(lv.color_hex(0x181818), lv.PART.MAIN | lv.STATE.DEFAULT)
+notes_overlay.set_style_bg_opa(255, lv.PART.MAIN | lv.STATE.DEFAULT)
+notes_overlay.set_style_border_opa(0, lv.PART.MAIN | lv.STATE.DEFAULT)
+
+notes_title_label = lv.label(notes_overlay)
+notes_title_label.set_text("NOTES")
+notes_title_label.align(lv.ALIGN.TOP_MID, 0, 18)
+notes_title_label.set_style_text_color(lv.color_hex(0xF0F0F0), lv.PART.MAIN | lv.STATE.DEFAULT)
+notes_title_label.set_style_text_font(safe_font("font_montserrat_20"), lv.PART.MAIN | lv.STATE.DEFAULT)
+stabilize_value_label(notes_title_label, 620, lv.TEXT_ALIGN.CENTER)
+
+notes_page_label = lv.label(notes_overlay)
+notes_page_label.set_text("")
+notes_page_label.align(lv.ALIGN.TOP_RIGHT, -18, 22)
+notes_page_label.set_style_text_color(lv.color_hex(0xA0A0A0), lv.PART.MAIN | lv.STATE.DEFAULT)
+stabilize_value_label(notes_page_label, 90, lv.TEXT_ALIGN.RIGHT)
+
+notes_body_label = lv.label(notes_overlay)
+notes_body_label.set_text("")
+notes_body_label.set_width(730)
+notes_body_label.set_long_mode(lv.label.LONG.WRAP)
+notes_body_label.align(lv.ALIGN.TOP_LEFT, 32, 64)
+notes_body_label.set_style_text_color(lv.color_hex(0xF7F7F7), lv.PART.MAIN | lv.STATE.DEFAULT)
+notes_body_label.set_style_text_font(safe_font("font_montserrat_20"), lv.PART.MAIN | lv.STATE.DEFAULT)
+notes_body_label.set_style_text_line_space(6, lv.PART.MAIN | lv.STATE.DEFAULT)
+
+notes_status_label = lv.label(notes_overlay)
+notes_status_label.set_text("")
+notes_status_label.align(lv.ALIGN.BOTTOM_MID, 0, -16)
+notes_status_label.set_style_text_color(lv.color_hex(0x9C9C9C), lv.PART.MAIN | lv.STATE.DEFAULT)
+stabilize_value_label(notes_status_label, 680, lv.TEXT_ALIGN.CENTER)
+
+notes_main_button = lv.btn(notes_overlay)
+notes_main_button.set_size(42, 42)
+notes_main_button.align(lv.ALIGN.BOTTOM_LEFT, 12, -12)
+SetFlag(notes_main_button, lv.obj.FLAG.SCROLLABLE, False)
+stabilize_button(notes_main_button)
+notes_main_button.set_style_bg_color(lv.color_hex(0x7A7A7A), lv.PART.MAIN | lv.STATE.DEFAULT)
+notes_main_button.set_style_bg_opa(191, lv.PART.MAIN | lv.STATE.DEFAULT)
+notes_main_button.set_style_border_opa(0, lv.PART.MAIN | lv.STATE.DEFAULT)
+notes_main_button.set_style_shadow_opa(0, lv.PART.MAIN | lv.STATE.DEFAULT)
+
+notes_main_button_label = lv.label(notes_main_button)
+notes_main_button_label.set_text("MAIN")
+notes_main_button_label.center()
+notes_main_button_label.set_style_text_color(lv.color_hex(0xE8E8E8), lv.PART.MAIN | lv.STATE.DEFAULT)
+
 
 # =========================================================
 # SETTINGS MENU SCREEN
@@ -1382,6 +1439,13 @@ wifi_scan_results = []
 shift_settings = clone_shift_settings()
 door_switch_enabled = False
 shift_reset_lock = False
+notes_entries = []
+notes_text_cache = {}
+notes_current_index = 0
+notes_title_text = "NOTES"
+notes_body_text = ""
+notes_status_text = ""
+notes_page_text = ""
 
 time_is_set = False
 set_hour = 12
@@ -2125,6 +2189,181 @@ def github_api_request(method, api_path, token_text, body_obj=None):
     status_code, response_headers, response_body = http_request(url, method=method, headers=headers, body=body_text)
     response_text = response_body.decode("utf-8", "ignore") if response_body else ""
     return status_code, response_headers, response_text
+
+
+def github_quote_path(path_text):
+    allowed = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~/"
+    pieces = []
+    for char in str(path_text).replace("\\", "/"):
+        if char in allowed:
+            pieces.append(char)
+        else:
+            pieces.append("%{:02X}".format(ord(char)))
+    return "".join(pieces)
+
+
+def get_notes_repo_api_path(path_text=""):
+    api_path = "/repos/{}/{}/contents".format(NOTES_REPO_OWNER, NOTES_REPO_NAME)
+    path_text = str(path_text).strip().strip("/")
+    if path_text:
+        api_path += "/" + github_quote_path(path_text)
+    return "{}?ref={}".format(api_path, NOTES_REPO_BRANCH)
+
+
+def get_notes_repo_label():
+    return "{}/{}".format(NOTES_REPO_OWNER, NOTES_REPO_NAME)
+
+
+def list_notes_repo_entries():
+    status_code, _headers, response_text = github_api_request("GET", get_notes_repo_api_path(), github_stats_token)
+    if status_code != 200:
+        raise OSError("Notes read failed ({}): {}".format(status_code, parse_github_error_message(response_text)))
+
+    try:
+        response_obj = json.loads(response_text)
+    except Exception:
+        response_obj = []
+
+    if isinstance(response_obj, dict):
+        response_obj = [response_obj]
+
+    entries = []
+    for item in response_obj:
+        if not isinstance(item, dict):
+            continue
+        if str(item.get("type", "")).lower() != "file":
+            continue
+        name = str(item.get("name", "")).strip()
+        path_text = str(item.get("path", name)).strip()
+        lower_name = name.lower()
+        if not name or name.startswith("."):
+            continue
+        if not any(lower_name.endswith(ext) for ext in NOTES_TEXT_EXTENSIONS):
+            continue
+        entries.append({"name": name, "path": path_text})
+
+    entries.sort(key=lambda item: item["name"].lower())
+    return entries
+
+
+def read_note_entry_text(entry):
+    status_code, _headers, response_text = github_api_request(
+        "GET", get_notes_repo_api_path(entry.get("path", "")), github_stats_token
+    )
+    if status_code != 200:
+        raise OSError("Note read failed ({}): {}".format(status_code, parse_github_error_message(response_text)))
+
+    response_obj = json.loads(response_text)
+    content_text = str(response_obj.get("content", ""))
+    if not content_text:
+        return ""
+
+    decoded = base64_decode_text(content_text).decode("utf-8", "ignore")
+    decoded = decoded.replace("\r\n", "\n").replace("\r", "\n")
+
+    file_name = str(entry.get("name", "")).lower()
+    if file_name.endswith(".json"):
+        try:
+            return json_pretty_text(json.loads(decoded))
+        except Exception:
+            return decoded
+
+    return decoded
+
+
+def set_notes_view_state(title_text, body_text, status_text="", page_text=""):
+    global notes_title_text, notes_body_text, notes_status_text, notes_page_text
+    notes_title_text = str(title_text)
+    notes_body_text = str(body_text)
+    notes_status_text = str(status_text)
+    notes_page_text = str(page_text)
+
+
+def load_current_note_page():
+    global notes_current_index
+    if not github_stats_token:
+        set_notes_view_state(
+            "NOTES",
+            "GitHub token not set.\nOpen SETTINGS > SOFTWARE UPDATE > STATS and import or save the token first.",
+            "Repo: {}".format(get_notes_repo_label()),
+            "",
+        )
+        return
+
+    if not notes_entries:
+        set_notes_view_state(
+            "NOTES",
+            "No supported note files found.\nAdd numbered .txt, .md, .json, or .csv files to the private repo.",
+            "Repo: {}".format(get_notes_repo_label()),
+            "0/0",
+        )
+        return
+
+    if notes_current_index >= len(notes_entries):
+        set_notes_view_state("", "", "", "")
+        return
+
+    if notes_current_index < 0:
+        notes_current_index = 0
+
+    entry = notes_entries[notes_current_index]
+    entry_path = entry["path"]
+    if entry_path not in notes_text_cache:
+        notes_text_cache[entry_path] = read_note_entry_text(entry)
+
+    set_notes_view_state(
+        entry["name"],
+        notes_text_cache.get(entry_path, ""),
+        "Repo: {}".format(get_notes_repo_label()),
+        "{}/{}".format(notes_current_index + 1, len(notes_entries)),
+    )
+
+
+def open_notes_screen(reset_index=False):
+    global notes_entries, notes_text_cache, notes_current_index
+
+    if reset_index:
+        notes_current_index = 0
+
+    notes_entries = []
+    notes_text_cache = {}
+
+    if github_stats_token:
+        try:
+            notes_entries = list_notes_repo_entries()
+        except Exception as err:
+            set_notes_view_state(
+                "NOTES",
+                "",
+                format_status_message("Notes load failed: {}".format(err), 82),
+                "",
+            )
+            lv.scr_load(ui_SETTINGS)
+            update_ui()
+            return
+
+    if notes_current_index > len(notes_entries):
+        notes_current_index = len(notes_entries)
+
+    load_current_note_page()
+    lv.scr_load(ui_SETTINGS)
+    update_ui()
+
+
+def advance_notes_page():
+    global notes_current_index
+    if notes_current_index < len(notes_entries):
+        notes_current_index += 1
+    load_current_note_page()
+    update_ui()
+
+
+def retreat_notes_page():
+    global notes_current_index
+    if notes_current_index > 0:
+        notes_current_index -= 1
+    load_current_note_page()
+    update_ui()
 
 
 def import_stats_token_from_url(url_text):
@@ -3913,6 +4152,13 @@ def update_stats_screen():
         set_cached_label_text("stats_{}_pph".format(shift_name), widgets["pph"], "PPH: {}".format(get_completed_shift_pph(shift_name)))
 
 
+def update_notes_screen():
+    set_cached_label_text("notes_title", notes_title_label, notes_title_text if notes_title_text else " ")
+    set_cached_label_text("notes_body", notes_body_label, notes_body_text if notes_body_text else " ")
+    set_cached_label_text("notes_status", notes_status_label, notes_status_text)
+    set_cached_label_text("notes_page", notes_page_label, notes_page_text)
+
+
 def update_main_screen_ui(current_shift):
     set_cached_label_text("good_count", ui_Good_Count_bar, good_count)
     set_cached_label_text("bad_count", ui_Label8, bad_count)
@@ -4004,7 +4250,7 @@ def update_ui():
     if current_screen == ui_MAIN_SCREEN:
         update_main_screen_ui(current_shift)
     elif current_screen == ui_SETTINGS:
-        update_stats_screen()
+        update_notes_screen()
     elif current_screen == ui_SETTINGS_MENU:
         update_settings_menu_ui(now_tuple)
 
@@ -4136,18 +4382,24 @@ def change_screen_gesture_event(e):
     if direction == lv.DIR.LEFT and current_screen == ui_MAIN_SCREEN:
         hide_goal_popup()
         hide_count_popup()
-        lv.scr_load(ui_SETTINGS)
-        update_ui()
+        open_notes_screen(reset_index=True)
+        last_gesture_ms = now_ms
+    elif direction == lv.DIR.LEFT and current_screen == ui_SETTINGS:
+        advance_notes_page()
         last_gesture_ms = now_ms
     elif direction == lv.DIR.RIGHT and current_screen == ui_SETTINGS:
-        hide_goal_popup()
-        hide_count_popup()
-        load_main_screen_with_guard()
+        retreat_notes_page()
         last_gesture_ms = now_ms
     elif direction == lv.DIR.RIGHT and current_screen == ui_SETTINGS_MENU:
         hide_all_settings_popups()
         load_main_screen_with_guard()
         last_gesture_ms = now_ms
+
+
+def notes_main_button_event(e):
+    if e.get_code() != lv.EVENT.CLICKED:
+        return
+    load_main_screen_with_guard()
 
 
 def daily_production_hold_event(e):
@@ -4685,6 +4937,7 @@ ui_IO_Check.add_event_cb(io_check_event, lv.EVENT.ALL, None)
 ui_Door_Switch_Enable_Button.add_event_cb(door_switch_toggle_event, lv.EVENT.ALL, None)
 ui_Software_Update.add_event_cb(software_update_event, lv.EVENT.ALL, None)
 ui_Reset_Shift_Data_Lock_Button.add_event_cb(shift_reset_lock_toggle_event, lv.EVENT.ALL, None)
+notes_main_button.add_event_cb(notes_main_button_event, lv.EVENT.ALL, None)
 
 ui_MAIN_SCREEN.add_event_cb(change_screen_gesture_event, lv.EVENT.GESTURE, None)
 ui_SETTINGS.add_event_cb(change_screen_gesture_event, lv.EVENT.GESTURE, None)
