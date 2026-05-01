@@ -28,7 +28,7 @@ PPH_STOP_BEFORE_SHIFT_END_MINUTES = 30
 DEFAULT_YEAR = 2026
 DEFAULT_MONTH = 4
 DEFAULT_DAY = 11
-APP_VERSION = "V2.34"
+APP_VERSION = "V2.35"
 BUTTON_FLASH_MS = 140
 SAVE_INTERVAL_MS = 120000
 STATE_FILE = "machine_oee_state.json"
@@ -60,6 +60,15 @@ NOTES_REPO_OWNER = "INDMFG"
 NOTES_REPO_NAME = "Notes"
 NOTES_REPO_BRANCH = "main"
 NOTES_TEXT_EXTENSIONS = (".txt", ".md", ".json", ".csv")
+DEFAULT_MACHINE_OPTIONS = (
+    {"id": "matsuura", "name": "Matsuura", "active": True},
+    {"id": "doosan", "name": "Doosan", "active": False},
+    {"id": "AS00", "name": "Nakamura", "active": False},
+    {"id": "tap_arm", "name": "Tap Arm", "active": False},
+    {"id": "x7_1", "name": "Syil X7 #1", "active": False},
+    {"id": "x7_2", "name": "Syil X7 #2", "active": False},
+    {"id": "taig", "name": "Taig", "active": False},
+)
 DEFAULT_STATS_MACHINE_ID = "matsuura"
 DEFAULT_STATS_TOKEN_IMPORT_URL = ""
 STATS_UPLOAD_INTERVAL_MS = 120000
@@ -1364,6 +1373,7 @@ software_update_entry_buttons = []
 
 stats_config_popup = None
 stats_config_machine_textarea = None
+stats_config_machine_pick = None
 stats_config_import_url_textarea = None
 stats_config_token_textarea = None
 stats_config_status = None
@@ -1372,6 +1382,12 @@ stats_config_save = None
 stats_config_import = None
 stats_config_upload = None
 stats_config_close = None
+machine_picker_popup = None
+machine_picker_list = None
+machine_picker_status = None
+machine_picker_close = None
+machine_picker_refresh = None
+machine_picker_callbacks = []
 
 # =========================================================
 # DATA / LOGIC
@@ -1439,6 +1455,7 @@ wifi_scan_results = []
 shift_settings = clone_shift_settings()
 door_switch_enabled = False
 shift_reset_lock = False
+machine_options_cache = [dict(item) for item in DEFAULT_MACHINE_OPTIONS]
 notes_entries = []
 notes_text_cache = {}
 notes_current_index = 0
@@ -2214,8 +2231,104 @@ def get_notes_repo_label():
     return "{}/{}".format(NOTES_REPO_OWNER, NOTES_REPO_NAME)
 
 
+def get_stats_repo_api_path(path_text=""):
+    api_path = "/repos/{}/{}/contents".format(STATS_REPO_OWNER, STATS_REPO_NAME)
+    path_text = str(path_text).strip().strip("/")
+    if path_text:
+        api_path += "/" + github_quote_path(path_text)
+    return "{}?ref={}".format(api_path, STATS_REPO_BRANCH)
+
+
+def normalize_machine_options(entries):
+    normalized = []
+    seen = {}
+    for item in entries:
+        if not isinstance(item, dict):
+            continue
+        machine_id = str(item.get("id", "")).strip()
+        if not machine_id or machine_id in seen:
+            continue
+        machine_name = str(item.get("name", machine_id)).strip() or machine_id
+        normalized.append({
+            "id": machine_id,
+            "name": machine_name,
+            "active": bool(item.get("active", False)),
+        })
+        seen[machine_id] = True
+    return normalized
+
+
+def ensure_machine_option_available(machine_id):
+    global machine_options_cache
+    machine_id = str(machine_id).strip()
+    if not machine_id:
+        return
+    for item in machine_options_cache:
+        if item.get("id") == machine_id:
+            return
+    machine_options_cache.append({
+        "id": machine_id,
+        "name": machine_id,
+        "active": False,
+    })
+
+
+def get_machine_display_name(machine_id):
+    machine_id = str(machine_id).strip()
+    for item in machine_options_cache:
+        if item.get("id") == machine_id:
+            return str(item.get("name", machine_id))
+    return machine_id
+
+
+def format_machine_choice(machine_id):
+    machine_id = str(machine_id).strip()
+    if not machine_id:
+        return "Not Set"
+    return "{} ({})".format(get_machine_display_name(machine_id), machine_id)
+
+
+def get_machine_index_repo_path():
+    return "machines/index.json"
+
+
+def load_machine_options_from_repo():
+    global machine_options_cache
+    if not github_stats_token:
+        ensure_machine_option_available(stats_machine_id)
+        return machine_options_cache
+    if connect_wifi() is None:
+        raise OSError("WiFi not connected")
+
+    status_code, _headers, response_text = github_api_request(
+        "GET", get_stats_repo_api_path(get_machine_index_repo_path()), github_stats_token
+    )
+    if status_code != 200:
+        raise OSError("Machine index read failed ({}): {}".format(status_code, parse_github_error_message(response_text)))
+
+    response_obj = json.loads(response_text)
+    content_text = str(response_obj.get("content", ""))
+    if not content_text:
+        raise OSError("Machine index is empty")
+
+    decoded = base64_decode_text(content_text).decode("utf-8", "ignore")
+    options = normalize_machine_options(json.loads(decoded))
+    if not options:
+        raise OSError("No machine options found")
+
+    machine_options_cache = options
+    ensure_machine_option_available(stats_machine_id)
+    return machine_options_cache
+
+
+def get_notes_machine_path():
+    return "machines/{}".format(stats_machine_id)
+
+
 def list_notes_repo_entries():
-    status_code, _headers, response_text = github_api_request("GET", get_notes_repo_api_path(), github_stats_token)
+    status_code, _headers, response_text = github_api_request(
+        "GET", get_notes_repo_api_path(get_notes_machine_path()), github_stats_token
+    )
     if status_code != 200:
         raise OSError("Notes read failed ({}): {}".format(status_code, parse_github_error_message(response_text)))
 
@@ -2285,7 +2398,7 @@ def load_current_note_page():
         set_notes_view_state(
             "NOTES",
             "GitHub token not set.\nOpen SETTINGS > SOFTWARE UPDATE > STATS and import or save the token first.",
-            "Repo: {}".format(get_notes_repo_label()),
+            "Repo: {}  Machine: {}".format(get_notes_repo_label(), stats_machine_id),
             "",
         )
         return
@@ -2294,7 +2407,7 @@ def load_current_note_page():
         set_notes_view_state(
             "NOTES",
             "No supported note files found.\nAdd numbered .txt, .md, .json, or .csv files to the private repo.",
-            "Repo: {}".format(get_notes_repo_label()),
+            "Repo: {}  Machine: {}".format(get_notes_repo_label(), stats_machine_id),
             "0/0",
         )
         return
@@ -2314,7 +2427,7 @@ def load_current_note_page():
     set_notes_view_state(
         entry["name"],
         notes_text_cache.get(entry_path, ""),
-        "Repo: {}".format(get_notes_repo_label()),
+        "Repo: {}  Machine: {}".format(get_notes_repo_label(), stats_machine_id),
         "{}/{}".format(notes_current_index + 1, len(notes_entries)),
     )
 
@@ -2737,12 +2850,7 @@ def upload_stats_to_github(manual=False):
     if connect_wifi() is None:
         raise OSError("WiFi not connected")
 
-    api_path = "/repos/{}/{}/contents/{}?ref={}".format(
-        STATS_REPO_OWNER,
-        STATS_REPO_NAME,
-        get_stats_status_path(),
-        STATS_REPO_BRANCH,
-    )
+    api_path = get_stats_repo_api_path(get_stats_status_path())
 
     status_code, _headers, response_text = github_api_request("GET", api_path, github_stats_token)
     existing = {}
@@ -2860,6 +2968,7 @@ def load_config():
         stats_machine_id = str(state.get("stats_machine_id", stats_machine_id)).strip() or DEFAULT_STATS_MACHINE_ID
         stats_token_import_url = normalize_import_url(state.get("stats_token_import_url", stats_token_import_url))
         github_stats_token = str(state.get("github_stats_token", github_stats_token)).strip()
+        ensure_machine_option_available(stats_machine_id)
         loaded_shift_settings = state.get("shift_settings", {})
         for shift_name in SHIFT_NAMES:
             shift_settings[shift_name] = normalize_shift_setting(shift_name, loaded_shift_settings.get(shift_name, shift_settings[shift_name]))
@@ -2998,6 +3107,7 @@ def load_state():
         stats_machine_id = str(state.get("stats_machine_id", stats_machine_id)).strip() or DEFAULT_STATS_MACHINE_ID
         stats_token_import_url = normalize_import_url(state.get("stats_token_import_url", stats_token_import_url))
         github_stats_token = str(state.get("github_stats_token", github_stats_token)).strip()
+        ensure_machine_option_available(stats_machine_id)
         set_hour = int(state.get("set_hour", set_hour))
         set_minute = int(state.get("set_minute", set_minute))
         time_is_set = bool(state.get("time_is_set", time_is_set))
@@ -3390,6 +3500,7 @@ def ensure_stats_config_popup():
     global stats_config_popup, stats_config_machine_textarea, stats_config_import_url_textarea
     global stats_config_token_textarea, stats_config_status, stats_config_kb
     global stats_config_save, stats_config_import, stats_config_upload, stats_config_close
+    global stats_config_machine_pick
 
     if stats_config_popup is not None:
         return
@@ -3413,23 +3524,26 @@ def ensure_stats_config_popup():
     stats_title.set_style_text_font(safe_font("font_montserrat_20"), lv.PART.MAIN | lv.STATE.DEFAULT)
 
     stats_info = lv.label(stats_config_popup)
-    stats_info.set_text("Repo: {}/{}".format(STATS_REPO_OWNER, STATS_REPO_NAME))
+    stats_info.set_text("Stats: {}/{}   Notes: {}/{}".format(STATS_REPO_OWNER, STATS_REPO_NAME, NOTES_REPO_OWNER, NOTES_REPO_NAME))
     stats_info.align(lv.ALIGN.TOP_LEFT, 18, 50)
     stats_info.set_style_text_color(lv.color_hex(0xFFFFFF), lv.PART.MAIN | lv.STATE.DEFAULT)
-    stabilize_value_label(stats_info, 420, lv.TEXT_ALIGN.LEFT)
+    stabilize_value_label(stats_info, 600, lv.TEXT_ALIGN.LEFT)
 
     machine_label = lv.label(stats_config_popup)
-    machine_label.set_text("Machine ID")
+    machine_label.set_text("Machine")
     machine_label.align(lv.ALIGN.TOP_LEFT, 18, 76)
     machine_label.set_style_text_color(lv.color_hex(0xAAAAAA), lv.PART.MAIN | lv.STATE.DEFAULT)
 
     stats_config_machine_textarea = lv.textarea(stats_config_popup)
-    stats_config_machine_textarea.set_size(260, 40)
+    stats_config_machine_textarea.set_size(420, 40)
     stats_config_machine_textarea.align(lv.ALIGN.TOP_LEFT, 18, 100)
     stats_config_machine_textarea.set_one_line(True)
     stats_config_machine_textarea.set_placeholder_text("matsuura")
     stabilize_widget(stats_config_machine_textarea)
     stats_config_machine_textarea.add_event_cb(stats_config_focus_machine_event, lv.EVENT.ALL, None)
+
+    stats_config_machine_pick = make_button(stats_config_popup, "SELECT", 220, -110, 140, 40, 0x0A0ACC)
+    stats_config_machine_pick.add_event_cb(machine_picker_open_event, lv.EVENT.ALL, None)
 
     import_url_label = lv.label(stats_config_popup)
     import_url_label.set_text("PC Token URL")
@@ -3486,7 +3600,14 @@ def show_stats_config_popup():
     stats_config_import_url_textarea.set_text(stats_token_import_url)
     stats_config_token_textarea.set_text(github_stats_token)
     stats_config_kb.set_textarea(stats_config_token_textarea)
-    stats_config_status.set_text("Status path: {}".format(get_stats_status_path()))
+    ensure_machine_option_available(stats_machine_id)
+    stats_config_status.set_text(
+        "Machine: {}  Status: {}  Notes: {}/".format(
+            format_machine_choice(stats_machine_id),
+            get_stats_status_path(),
+            get_notes_machine_path(),
+        )
+    )
     hide_software_update_popup()
     stats_config_popup.clear_flag(lv.obj.FLAG.HIDDEN)
     stats_config_popup.move_foreground()
@@ -3535,6 +3656,125 @@ def make_software_update_entry_event(entry, btn):
             return
         select_software_update_entry(entry, btn)
     return _event
+
+
+def hide_machine_picker_popup():
+    if machine_picker_popup is not None:
+        machine_picker_popup.add_flag(lv.obj.FLAG.HIDDEN)
+
+
+def clear_machine_picker_list():
+    global machine_picker_callbacks
+    machine_picker_callbacks = []
+    try:
+        if machine_picker_list is not None:
+            machine_picker_list.clean()
+    except Exception:
+        pass
+
+
+def select_machine_option(entry):
+    machine_id = str(entry.get("id", "")).strip()
+    if not machine_id:
+        return
+    stats_config_machine_textarea.set_text(machine_id)
+    if stats_config_status is not None:
+        stats_config_status.set_text("Selected machine: {}".format(format_machine_choice(machine_id)))
+    hide_machine_picker_popup()
+
+
+def make_machine_picker_event(entry):
+    def _event(e):
+        if e.get_code() != lv.EVENT.CLICKED:
+            return
+        select_machine_option(entry)
+    return _event
+
+
+def ensure_machine_picker_popup():
+    global machine_picker_popup, machine_picker_list, machine_picker_status
+    global machine_picker_close, machine_picker_refresh
+
+    if machine_picker_popup is not None:
+        return
+
+    machine_picker_popup = lv.obj(ui_SETTINGS_MENU)
+    machine_picker_popup.set_size(520, 360)
+    machine_picker_popup.center()
+    stabilize_widget(machine_picker_popup)
+    machine_picker_popup.set_style_bg_color(lv.color_hex(0x222222), lv.PART.MAIN | lv.STATE.DEFAULT)
+    machine_picker_popup.set_style_bg_opa(255, lv.PART.MAIN | lv.STATE.DEFAULT)
+    machine_picker_popup.set_style_border_color(lv.color_hex(0x0A0ACC), lv.PART.MAIN | lv.STATE.DEFAULT)
+    machine_picker_popup.set_style_border_width(3, lv.PART.MAIN | lv.STATE.DEFAULT)
+    machine_picker_popup.set_style_radius(8, lv.PART.MAIN | lv.STATE.DEFAULT)
+    machine_picker_popup.clear_flag(lv.obj.FLAG.SCROLLABLE)
+    machine_picker_popup.add_flag(lv.obj.FLAG.HIDDEN)
+
+    picker_title = lv.label(machine_picker_popup)
+    picker_title.set_text("SELECT MACHINE")
+    picker_title.align(lv.ALIGN.TOP_MID, 0, 12)
+    picker_title.set_style_text_color(lv.color_hex(0xFCA903), lv.PART.MAIN | lv.STATE.DEFAULT)
+    picker_title.set_style_text_font(safe_font("font_montserrat_20"), lv.PART.MAIN | lv.STATE.DEFAULT)
+
+    machine_picker_status = lv.label(machine_picker_popup)
+    machine_picker_status.set_text("")
+    machine_picker_status.align(lv.ALIGN.TOP_LEFT, 18, 50)
+    machine_picker_status.set_style_text_color(lv.color_hex(0xFFFFFF), lv.PART.MAIN | lv.STATE.DEFAULT)
+    stabilize_value_label(machine_picker_status, 480, lv.TEXT_ALIGN.LEFT)
+
+    machine_picker_list = lv.list(machine_picker_popup)
+    machine_picker_list.set_size(480, 210)
+    machine_picker_list.align(lv.ALIGN.TOP_MID, 0, 84)
+    stabilize_widget(machine_picker_list)
+
+    machine_picker_refresh = make_button(machine_picker_popup, "REFRESH", -90, 148, 120, 40, 0x04BE2D)
+    machine_picker_close = make_button(machine_picker_popup, "CLOSE", 90, 148, 120, 40, 0xC32331)
+    machine_picker_refresh.add_event_cb(machine_picker_refresh_event, lv.EVENT.ALL, None)
+    machine_picker_close.add_event_cb(machine_picker_close_event, lv.EVENT.ALL, None)
+
+
+def refresh_machine_picker_popup():
+    clear_machine_picker_list()
+    ensure_machine_option_available(stats_config_machine_textarea.get_text())
+
+    try:
+        options = load_machine_options_from_repo()
+        machine_picker_status.set_text("Loaded {} machines".format(len(options)))
+    except Exception as err:
+        options = machine_options_cache
+        machine_picker_status.set_text(format_status_message("Using saved list: {}".format(err), 72))
+
+    for entry in options:
+        button = machine_picker_list.add_btn(lv.SYMBOL.DRIVE, format_machine_choice(entry.get("id", "")))
+        button.clear_flag(lv.obj.FLAG.CLICK_FOCUSABLE)
+        callback = make_machine_picker_event(entry)
+        machine_picker_callbacks.append(callback)
+        button.add_event_cb(callback, lv.EVENT.ALL, None)
+
+
+def show_machine_picker_popup():
+    ensure_machine_picker_popup()
+    refresh_machine_picker_popup()
+    machine_picker_popup.clear_flag(lv.obj.FLAG.HIDDEN)
+    machine_picker_popup.move_foreground()
+
+
+def machine_picker_open_event(e):
+    if e.get_code() != lv.EVENT.CLICKED:
+        return
+    show_machine_picker_popup()
+
+
+def machine_picker_refresh_event(e):
+    if e.get_code() != lv.EVENT.CLICKED:
+        return
+    refresh_machine_picker_popup()
+
+
+def machine_picker_close_event(e):
+    if e.get_code() != lv.EVENT.CLICKED:
+        return
+    hide_machine_picker_popup()
 
 
 def ensure_settings_number_popup():
@@ -3793,6 +4033,7 @@ def hide_all_settings_popups():
     hide_io_check_popup()
     hide_software_update_popup()
     hide_stats_config_popup()
+    hide_machine_picker_popup()
 
 
 def refresh_io_check_label():
@@ -4722,9 +4963,16 @@ def apply_stats_config_from_popup():
     stats_machine_id = new_machine_id
     stats_token_import_url = new_import_url
     github_stats_token = new_token
+    ensure_machine_option_available(stats_machine_id)
     mark_data_dirty()
-    settings_menu_status.set_text("Stats config saved: {}".format(stats_machine_id))
-    stats_config_status.set_text("Saved locally on screen")
+    settings_menu_status.set_text("Machine saved: {}".format(stats_machine_id))
+    stats_config_status.set_text(
+        "Saved: {}  Status: {}  Notes: {}/".format(
+            format_machine_choice(stats_machine_id),
+            get_stats_status_path(),
+            get_notes_machine_path(),
+        )
+    )
     update_ui()
     save_config()
     save_state(force=True)
@@ -4752,11 +5000,17 @@ def stats_config_import_event(e):
         stats_machine_id = new_machine_id
         stats_token_import_url = import_url
         github_stats_token = imported_token
+        ensure_machine_option_available(stats_machine_id)
         stats_config_import_url_textarea.set_text(stats_token_import_url)
         stats_config_token_textarea.set_text(github_stats_token)
         mark_data_dirty()
         settings_menu_status.set_text("Stats token imported")
-        stats_config_status.set_text("Token imported from PC")
+        stats_config_status.set_text(
+            "Token imported. Machine: {}  Notes: {}/".format(
+                format_machine_choice(stats_machine_id),
+                get_notes_machine_path(),
+            )
+        )
         update_ui()
         save_config()
         save_state(force=True)
