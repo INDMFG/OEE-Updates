@@ -1,10 +1,10 @@
 {
-  "latest": "V2.36",
+  "latest": "V2.37",
   "versions": [
     {
-      "version": "V2.36",
-      "url": "https://raw.githubusercontent.com/INDMFG/OEE-Updates/main/releases/V2.36.py",
-      "notes": "Restore shift stats swipe and add NOTE button on main screen"
+      "version": "V2.37",
+      "url": "https://raw.githubusercontent.com/INDMFG/OEE-Updates/main/releases/V2.37.py",
+      "notes": "Add settings-style machine selector and keep NOTE + shift stats navigation"
     },
     {
       "version": "V2.32 Stable",

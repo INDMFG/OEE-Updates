@@ -28,7 +28,7 @@ PPH_STOP_BEFORE_SHIFT_END_MINUTES = 30
 DEFAULT_YEAR = 2026
 DEFAULT_MONTH = 4
 DEFAULT_DAY = 11
-APP_VERSION = "V2.36"
+APP_VERSION = "V2.37"
 BUTTON_FLASH_MS = 140
 SAVE_INTERVAL_MS = 120000
 STATE_FILE = "machine_oee_state.json"
@@ -1393,8 +1393,9 @@ software_update_selected_btn = None
 software_update_entry_buttons = []
 
 stats_config_popup = None
-stats_config_machine_textarea = None
-stats_config_machine_pick = None
+stats_config_machine_value = DEFAULT_STATS_MACHINE_ID
+stats_config_machine_button = None
+stats_config_machine_button_label = None
 stats_config_import_url_textarea = None
 stats_config_token_textarea = None
 stats_config_status = None
@@ -3513,10 +3514,13 @@ def hide_stats_config_popup():
         stats_config_popup.add_flag(lv.obj.FLAG.HIDDEN)
 
 
-def stats_config_focus_machine_event(e):
-    if e.get_code() == lv.EVENT.CLICKED or e.get_code() == lv.EVENT.FOCUSED:
-        if stats_config_kb is not None and stats_config_machine_textarea is not None:
-            stats_config_kb.set_textarea(stats_config_machine_textarea)
+def refresh_stats_config_machine_button():
+    if stats_config_machine_button_label is None:
+        return
+    machine_id = str(stats_config_machine_value).strip() or DEFAULT_STATS_MACHINE_ID
+    machine_name = get_machine_display_name(machine_id)
+    stats_config_machine_button_label.set_text("Machine\n{}".format(machine_name))
+    stats_config_machine_button_label.center()
 
 
 def stats_config_focus_import_url_event(e):
@@ -3532,10 +3536,10 @@ def stats_config_focus_token_event(e):
 
 
 def ensure_stats_config_popup():
-    global stats_config_popup, stats_config_machine_textarea, stats_config_import_url_textarea
+    global stats_config_popup, stats_config_machine_button, stats_config_machine_button_label
+    global stats_config_import_url_textarea
     global stats_config_token_textarea, stats_config_status, stats_config_kb
     global stats_config_save, stats_config_import, stats_config_upload, stats_config_close
-    global stats_config_machine_pick
 
     if stats_config_popup is not None:
         return
@@ -3569,16 +3573,15 @@ def ensure_stats_config_popup():
     machine_label.align(lv.ALIGN.TOP_LEFT, 18, 76)
     machine_label.set_style_text_color(lv.color_hex(0xAAAAAA), lv.PART.MAIN | lv.STATE.DEFAULT)
 
-    stats_config_machine_textarea = lv.textarea(stats_config_popup)
-    stats_config_machine_textarea.set_size(420, 40)
-    stats_config_machine_textarea.align(lv.ALIGN.TOP_LEFT, 18, 100)
-    stats_config_machine_textarea.set_one_line(True)
-    stats_config_machine_textarea.set_placeholder_text("matsuura")
-    stabilize_widget(stats_config_machine_textarea)
-    stats_config_machine_textarea.add_event_cb(stats_config_focus_machine_event, lv.EVENT.ALL, None)
-
-    stats_config_machine_pick = make_button(stats_config_popup, "SELECT", 220, -110, 140, 40, 0x0A0ACC)
-    stats_config_machine_pick.add_event_cb(machine_picker_open_event, lv.EVENT.ALL, None)
+    stats_config_machine_button, stats_config_machine_button_label = make_settings_button(
+        stats_config_popup,
+        "Machine\nMatsuura",
+        0,
+        -87,
+    )
+    stats_config_machine_button.set_size(300, 82)
+    stats_config_machine_button.add_event_cb(machine_picker_open_event, lv.EVENT.ALL, None)
+    refresh_stats_config_machine_button()
 
     import_url_label = lv.label(stats_config_popup)
     import_url_label.set_text("PC Token URL")
@@ -3630,8 +3633,10 @@ def ensure_stats_config_popup():
 
 
 def show_stats_config_popup():
+    global stats_config_machine_value
     ensure_stats_config_popup()
-    stats_config_machine_textarea.set_text(stats_machine_id)
+    stats_config_machine_value = stats_machine_id
+    refresh_stats_config_machine_button()
     stats_config_import_url_textarea.set_text(stats_token_import_url)
     stats_config_token_textarea.set_text(github_stats_token)
     stats_config_kb.set_textarea(stats_config_token_textarea)
@@ -3709,10 +3714,12 @@ def clear_machine_picker_list():
 
 
 def select_machine_option(entry):
+    global stats_config_machine_value
     machine_id = str(entry.get("id", "")).strip()
     if not machine_id:
         return
-    stats_config_machine_textarea.set_text(machine_id)
+    stats_config_machine_value = machine_id
+    refresh_stats_config_machine_button()
     if stats_config_status is not None:
         stats_config_status.set_text("Selected machine: {}".format(format_machine_choice(machine_id)))
     hide_machine_picker_popup()
@@ -3770,7 +3777,7 @@ def ensure_machine_picker_popup():
 
 def refresh_machine_picker_popup():
     clear_machine_picker_list()
-    ensure_machine_option_available(stats_config_machine_textarea.get_text())
+    ensure_machine_option_available(stats_config_machine_value)
 
     try:
         options = load_machine_options_from_repo()
@@ -5002,7 +5009,7 @@ def software_update_close_event(e):
 
 def apply_stats_config_from_popup():
     global stats_machine_id, stats_token_import_url, github_stats_token
-    new_machine_id = str(stats_config_machine_textarea.get_text()).strip()
+    new_machine_id = str(stats_config_machine_value).strip()
     new_import_url = normalize_import_url(stats_config_import_url_textarea.get_text())
     new_token = str(stats_config_token_textarea.get_text()).strip()
     if not new_machine_id:
@@ -5039,7 +5046,7 @@ def stats_config_import_event(e):
     if e.get_code() != lv.EVENT.CLICKED:
         return
     try:
-        new_machine_id = str(stats_config_machine_textarea.get_text()).strip()
+        new_machine_id = str(stats_config_machine_value).strip()
         if not new_machine_id:
             raise ValueError("Machine ID required")
         stats_config_status.set_text("Importing token...")
