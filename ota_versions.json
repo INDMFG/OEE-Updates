@@ -1,10 +1,10 @@
 {
-  "latest": "V2.37",
+  "latest": "V2.38",
   "versions": [
     {
-      "version": "V2.37",
-      "url": "https://raw.githubusercontent.com/INDMFG/OEE-Updates/main/releases/V2.37.py",
-      "notes": "Add settings-style machine selector and keep NOTE + shift stats navigation"
+      "version": "V2.38",
+      "url": "https://raw.githubusercontent.com/INDMFG/OEE-Updates/main/releases/V2.38.py",
+      "notes": "Make main-screen PPH decay live during idle instead of holding the last completed value"
     },
     {
       "version": "V2.32 Stable",
