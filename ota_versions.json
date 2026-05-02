@@ -1,10 +1,10 @@
 {
-  "latest": "V2.38",
+  "latest": "V2.39",
   "versions": [
     {
-      "version": "V2.38",
-      "url": "https://raw.githubusercontent.com/INDMFG/OEE-Updates/main/releases/V2.38.py",
-      "notes": "Make main-screen PPH decay live during idle instead of holding the last completed value"
+      "version": "V2.39",
+      "url": "https://raw.githubusercontent.com/INDMFG/OEE-Updates/main/releases/V2.39.py",
+      "notes": "Keep screen graphs on steady averaged PPH and upload a hidden live current PPH for the PC dashboard"
     },
     {
       "version": "V2.32 Stable",
