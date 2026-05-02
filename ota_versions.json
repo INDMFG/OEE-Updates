@@ -1,10 +1,10 @@
 {
-  "latest": "V2.43",
+  "latest": "V2.44",
   "versions": [
     {
-      "version": "V2.43",
-      "url": "https://raw.githubusercontent.com/INDMFG/OEE-Updates/main/releases/V2.43.py",
-      "notes": "Fix shift graph reset rollover and make door load/idle timers update live on the main screen"
+      "version": "V2.44",
+      "url": "https://raw.githubusercontent.com/INDMFG/OEE-Updates/main/releases/V2.44.py",
+      "notes": "Add reset-boundary markers so stale shift PPH buckets clear correctly and keep live door timing visible"
     },
     {
       "version": "V2.32 Stable",
