@@ -1,10 +1,10 @@
 {
-  "latest": "V2.49",
+  "latest": "V2.50",
   "versions": [
     {
-      "version": "V2.49",
-      "url": "https://raw.githubusercontent.com/INDMFG/OEE-Updates/main/releases/V2.49.py",
-      "notes": "Let hidden live PPH decay and re-upload when a machine goes idle so supervisor math does not stick on old pace"
+      "version": "V2.50",
+      "url": "https://raw.githubusercontent.com/INDMFG/OEE-Updates/main/releases/V2.50.py",
+      "notes": "Log 5-minute current PPH points on the screen for 2 weeks so the PC app can build longer charts from imported machine history"
     },
     {
       "version": "V2.32 Stable",
