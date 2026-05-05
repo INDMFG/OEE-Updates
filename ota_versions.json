@@ -1,10 +1,10 @@
 {
-  "latest": "V2.52",
+  "latest": "V2.53",
   "versions": [
     {
-      "version": "V2.52",
-      "url": "https://raw.githubusercontent.com/INDMFG/OEE-Updates/main/releases/V2.52.py",
-      "notes": "Calm the screen refresh path, preserve active shift graph data more reliably across updates, and add a dedicated SHIFT button plus easier swipe access for shift stats"
+      "version": "V2.53",
+      "url": "https://raw.githubusercontent.com/INDMFG/OEE-Updates/main/releases/V2.53.py",
+      "notes": "Rebuild the screen from the steadier V2.39 base, keep hidden 5-minute PPH history and totals for the PC chart, add a dedicated SHIFT button, and leave the door feature disabled"
     },
     {
       "version": "V2.32 Stable",
