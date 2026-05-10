@@ -1,10 +1,10 @@
 {
-  "latest": "V2.54",
+  "latest": "V2.55",
   "versions": [
     {
-      "version": "V2.54",
-      "url": "https://raw.githubusercontent.com/INDMFG/OEE-Updates/main/releases/V2.54.py",
-      "notes": "Keep the steadier V2.39-based screen, move 2-week PPH history into a compact local file, upload smaller per-day history files to GitHub, reduce background sync pressure, and harden shift rollover/cycle-end timing"
+      "version": "V2.55",
+      "url": "https://raw.githubusercontent.com/INDMFG/OEE-Updates/main/releases/V2.55.py",
+      "notes": "ESP32 light-screen build: disable remote stats/history uploads and Notes, keep local production and shift displays, keep OTA and WiFi time sync, and remove the extra GitHub load that was making the screen glitchy"
     },
     {
       "version": "V2.32 Stable",
