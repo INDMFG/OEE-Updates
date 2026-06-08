@@ -1,6 +1,11 @@
 {
-  "latest": "V2.56",
+  "latest": "V2.57",
   "versions": [
+    {
+      "version": "V2.57",
+      "url": "https://raw.githubusercontent.com/INDMFG/OEE-Updates/main/releases/V2.57.py",
+      "notes": "ESP32 light-screen build: add explicit MAIN navigation buttons on stats and settings screens while keeping swipe navigation as a backup"
+    },
     {
       "version": "V2.56",
       "url": "https://raw.githubusercontent.com/INDMFG/OEE-Updates/main/releases/V2.56.py",
